@@ -59,6 +59,16 @@ Recommended `server.properties` change: `texturepack-required=true` so clients a
 
 Realms is **not** supported — Realms only accepts Marketplace add-ons.
 
+### Uninstalling from BDS
+
+```
+./uninstall-bds.sh /opt/bedrock my_world
+```
+
+Stop the server first. The script strips the pack UUIDs from the world's `world_{behavior,resource}_packs.json` and removes any `zipline_BP_*` / `zipline_RP_*` directories from `behavior_packs/` and `resource_packs/`. Idempotent.
+
+Any `zipline:anchor` entities already in the world become inert ghosts (they persist in world data but don't render or tick). To purge them, run `/kill @e[type=zipline:anchor]` in-game **before** uninstalling, while the add-on is still loaded.
+
 ## How to play
 
 | Item | Action | Effect |
