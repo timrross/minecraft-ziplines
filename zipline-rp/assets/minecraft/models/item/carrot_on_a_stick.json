@@ -1,0 +1,12 @@
+{
+	"parent": "minecraft:item/generated",
+	"textures": {
+		"layer0": "item/carrot_on_a_stick"
+	},
+	"overrides": [
+		{ "predicate": { "custom_model_data": 80004 }, "model": "item/zipline_item" },
+		{ "predicate": { "custom_model_data": 80005 }, "model": "item/zipline_wrench" },
+		{ "predicate": { "custom_model_data": 80006 }, "model": "item/zipline_handel" },
+		{ "predicate": { "custom_model_data": 80007 }, "model": "item/zipline_handel" }
+	]
+}

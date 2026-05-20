@@ -1,0 +1,9 @@
+{
+  "resource_pack_name": "zipline",
+  "texture_name": "atlas.items",
+  "texture_data": {
+    "zipline_placer": { "textures": "textures/items/zipline_placer" },
+    "zipline_wrench": { "textures": "textures/items/zipline_wrench" },
+    "zipline_handle": { "textures": "textures/items/zipline_handle" }
+  }
+}

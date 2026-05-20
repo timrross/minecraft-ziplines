@@ -1,0 +1,59 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.zipline.placer.hold_first_person": {
+      "loop": true,
+      "bones": {
+        "bb_main": {
+          "rotation": [0, -90, 0],
+          "position": [4, 4, -4]
+        }
+      }
+    },
+    "animation.zipline.placer.hold_third_person": {
+      "loop": true,
+      "bones": {
+        "bb_main": {
+          "rotation": [-90, 0, 0],
+          "position": [0, 4, 2]
+        }
+      }
+    },
+    "animation.zipline.wrench.hold_first_person": {
+      "loop": true,
+      "bones": {
+        "bb_main": {
+          "rotation": [0, -90, 0],
+          "position": [4, 4, -4]
+        }
+      }
+    },
+    "animation.zipline.wrench.hold_third_person": {
+      "loop": true,
+      "bones": {
+        "bb_main": {
+          "rotation": [-90, 0, 0],
+          "position": [0, 4, 2]
+        }
+      }
+    },
+    "animation.zipline.handle.hold_first_person": {
+      "loop": true,
+      "bones": {
+        "bb_main": {
+          "rotation": [0, -90, 0],
+          "position": [4, 4, -4]
+        }
+      }
+    },
+    "animation.zipline.handle.hold_third_person": {
+      "loop": true,
+      "bones": {
+        "bb_main": {
+          "rotation": [-90, 0, 0],
+          "position": [0, 4, 2]
+        }
+      }
+    }
+  }
+}

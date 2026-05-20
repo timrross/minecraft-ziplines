@@ -1,0 +1,23 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Zipline RP",
+    "description": "Zipline resource pack — by Lubcubs (Bedrock port)",
+    "uuid": "ab9c628b-d5e9-4550-b79d-837794fd6378",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "f1b88b43-faa7-427d-b5d7-5b796e26c6c2",
+      "version": [1, 0, 0]
+    }
+  ],
+  "dependencies": [
+    {
+      "uuid": "c74cdcb9-d41a-4c3b-9774-3b1682f2d2d0",
+      "version": [1, 0, 0]
+    }
+  ]
+}

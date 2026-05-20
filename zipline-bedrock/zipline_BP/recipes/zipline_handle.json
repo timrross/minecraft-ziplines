@@ -1,0 +1,17 @@
+{
+  "format_version": "1.20.30",
+  "minecraft:recipe_shaped": {
+    "description": { "identifier": "zipline:handle_recipe" },
+    "tags": ["crafting_table"],
+    "pattern": [
+      "III",
+      "T T",
+      " I "
+    ],
+    "key": {
+      "I": { "item": "minecraft:iron_ingot" },
+      "T": { "item": "minecraft:tripwire_hook" }
+    },
+    "result": { "item": "zipline:handle", "count": 1 }
+  }
+}

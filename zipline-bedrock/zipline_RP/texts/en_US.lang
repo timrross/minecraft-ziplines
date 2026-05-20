@@ -1,0 +1,6 @@
+item.zipline:placer.name=Zipline Spool
+item.zipline:wrench.name=Zipline Wrench
+item.zipline:handle.name=Zipline Handle
+entity.zipline:anchor.name=Zipline Anchor
+pack.name=Zipline RP
+pack.description=Zipline resource pack

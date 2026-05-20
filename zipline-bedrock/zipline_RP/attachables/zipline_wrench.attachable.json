@@ -1,0 +1,29 @@
+{
+  "format_version": "1.20.30",
+  "minecraft:attachable": {
+    "description": {
+      "identifier": "zipline:wrench",
+      "item": { "zipline:wrench": "query.is_owner_identifier_any('minecraft:player')" },
+      "materials": {
+        "default": "entity_alphatest",
+        "enchanted": "entity_alphatest_glint"
+      },
+      "textures": {
+        "default": "textures/items/zipline_wrench",
+        "enchanted": "textures/misc/enchanted_item_glint"
+      },
+      "geometry": { "default": "geometry.zipline.wrench" },
+      "animations": {
+        "hold_first_person": "animation.zipline.wrench.hold_first_person",
+        "hold_third_person": "animation.zipline.wrench.hold_third_person"
+      },
+      "scripts": {
+        "animate": [
+          { "hold_first_person": "context.is_first_person == 1.0" },
+          { "hold_third_person": "context.is_first_person == 0.0" }
+        ]
+      },
+      "render_controllers": ["controller.render.item_default"]
+    }
+  }
+}

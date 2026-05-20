@@ -1,0 +1,21 @@
+{
+  "format_version": "1.20.50",
+  "minecraft:item": {
+    "description": {
+      "identifier": "zipline:placer",
+      "menu_category": { "category": "equipment", "group": "itemGroup.name.tool" }
+    },
+    "components": {
+      "minecraft:max_stack_size": 1,
+      "minecraft:icon": { "texture": "zipline_placer" },
+      "minecraft:display_name": { "value": "Zipline Spool" },
+      "minecraft:hand_equipped": true,
+      "minecraft:use_modifiers": { "use_duration": 0.05, "movement_modifier": 1.0 },
+      "minecraft:lore": [
+        "§7Sneak + Use: set start anchor",
+        "§7Use again (no sneak): finish the line",
+        "§7Up to 96 blocks"
+      ]
+    }
+  }
+}

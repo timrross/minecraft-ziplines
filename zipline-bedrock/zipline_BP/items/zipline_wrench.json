@@ -1,0 +1,20 @@
+{
+  "format_version": "1.20.50",
+  "minecraft:item": {
+    "description": {
+      "identifier": "zipline:wrench",
+      "menu_category": { "category": "equipment", "group": "itemGroup.name.tool" }
+    },
+    "components": {
+      "minecraft:max_stack_size": 1,
+      "minecraft:icon": { "texture": "zipline_wrench" },
+      "minecraft:display_name": { "value": "Zipline Wrench" },
+      "minecraft:hand_equipped": true,
+      "minecraft:use_modifiers": { "use_duration": 0.05, "movement_modifier": 1.0 },
+      "minecraft:lore": [
+        "§7Use: remove the line you're aiming at",
+        "§7Sneak + Use: cancel a pending placement"
+      ]
+    }
+  }
+}

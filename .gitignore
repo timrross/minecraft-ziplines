@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# Build output
+zipline-bedrock/dist/
+
+# Local Claude state
+.claude/
