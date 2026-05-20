@@ -14,21 +14,23 @@ const AIM_PERP_TOLERANCE = 0.9;
 const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 2;
 const REFUND_INGOTS = 7;
-const LEVITATION_TICKS = 40;
-const LEVITATION_AMPLIFIER = 255;
+
+const RIDE_SLOWFALL_TICKS = 40;
 const DISMOUNT_SLOWFALL_TICKS = 60;
 const DISMOUNT_SLOWFALL_AMPLIFIER = 4;
+const MOUNT_GRACE_TICKS = 10;
 
 const PARTICLE_INTERVAL_TICKS = 2;
 const PARTICLE_VIEW_RADIUS = 48;
 const ROPE_PARTICLE = "zipline:rope";
+const PREVIEW_PARTICLE = "zipline:preview";
 const START_PARTICLE = "zipline:anchor_start";
 const END_PARTICLE = "zipline:anchor_end";
-const ROPE_INTERPOLATIONS = 4;
+const ROPE_INTERPOLATIONS = 8;
 const ENDPOINT_COLUMN_HEIGHT = 5;
 const ENDPOINT_COLUMN_STEP = 0.2;
 const PREVIEW_INTERVAL_TICKS = 2;
-const PREVIEW_ROPE_PARTICLES = 8;
+const PREVIEW_ROPE_PARTICLES = 12;
 
 const MAX_LINES_PER_PLAYER = 20;
 const DIMENSION_IDS = ["minecraft:overworld", "minecraft:nether", "minecraft:the_end"];
@@ -42,6 +44,7 @@ const DP_PENDING_ANCHOR = "zipline:pendingAnchor";
 const DP_RIDING_LINE = "zipline:ridingLine";
 const DP_RIDING_SEG = "zipline:ridingSeg";
 const DP_RIDING_COUNT = "zipline:ridingCount";
+const DP_MOUNT_TICK = "zipline:mountTick";
 
 function safe(fn) {
   return (...args) => {
@@ -153,9 +156,6 @@ function placeStartAnchor(player) {
     player.playSound("note.bass", { volume: 0.5, pitch: 0.7 });
     return;
   }
-  if (typeof player.getDynamicProperty(DP_PENDING_ANCHOR) === "string") {
-    cancelPending(player, true);
-  }
   const end = raycastEnd(player);
   const lineId = newLineId();
   const anchor = player.dimension.spawnEntity(ANCHOR, end);
@@ -164,7 +164,7 @@ function placeStartAnchor(player) {
   anchor.setDynamicProperty(DP_CREATOR_ID, player.id);
   player.setDynamicProperty(DP_PENDING_LINE, lineId);
   player.setDynamicProperty(DP_PENDING_ANCHOR, anchor.id);
-  player.sendMessage("§aZipline start set. Aim and use the spool again to finish.");
+  player.sendMessage("§aZipline start set. Use the spool again to finish.");
   player.playSound("note.bell", { volume: 0.6, pitch: 1.4 });
 }
 
@@ -210,7 +210,7 @@ function placeEndAndConnect(player) {
   try { player.onScreenDisplay.setActionBar(""); } catch (_) {}
 }
 
-function cancelPending(player, silent) {
+function cancelPending(player) {
   const startId = player.getDynamicProperty(DP_PENDING_ANCHOR);
   if (typeof startId === "string") {
     const startAnchor = findAnchorById(player.dimension, startId, player.location);
@@ -219,11 +219,9 @@ function cancelPending(player, silent) {
     }
   }
   clearPending(player);
-  if (!silent) {
-    player.sendMessage("§eZipline placement cancelled.");
-    player.playSound("note.bass", { volume: 0.5, pitch: 0.9 });
-    try { player.onScreenDisplay.setActionBar(""); } catch (_) {}
-  }
+  player.sendMessage("§eZipline placement cancelled.");
+  player.playSound("note.bass", { volume: 0.5, pitch: 0.9 });
+  try { player.onScreenDisplay.setActionBar(""); } catch (_) {}
 }
 
 function removeLine(player, anchor) {
@@ -255,7 +253,7 @@ function mountHandle(player, anchor) {
   const segIndex = anchor.getDynamicProperty(DP_SEG_INDEX);
   player.setDynamicProperty(DP_RIDING_LINE, lineId);
   player.setDynamicProperty(DP_RIDING_SEG, typeof segIndex === "number" ? segIndex : 0);
-  // Look up segCount from start anchor of the same line
+  player.setDynamicProperty(DP_MOUNT_TICK, system.currentTick);
   const dim = player.dimension;
   const all = dim.getEntities({
     type: ANCHOR,
@@ -270,8 +268,8 @@ function mountHandle(player, anchor) {
     DP_RIDING_COUNT,
     typeof segCount === "number" ? segCount : MAX_SEGMENTS,
   );
-  player.addEffect("levitation", LEVITATION_TICKS, {
-    amplifier: LEVITATION_AMPLIFIER,
+  player.addEffect("slow_falling", RIDE_SLOWFALL_TICKS, {
+    amplifier: 0,
     showParticles: false,
   });
   player.playSound("note.chime", { volume: 1, pitch: 1.4 });
@@ -282,8 +280,9 @@ function dismountPlayer(player) {
   player.setDynamicProperty(DP_RIDING_LINE, undefined);
   player.setDynamicProperty(DP_RIDING_SEG, undefined);
   player.setDynamicProperty(DP_RIDING_COUNT, undefined);
-  try { player.removeEffect("levitation"); } catch (_) {}
+  player.setDynamicProperty(DP_MOUNT_TICK, undefined);
   if (wasRiding) {
+    try { player.removeEffect("slow_falling"); } catch (_) {}
     try {
       player.addEffect("slow_falling", DISMOUNT_SLOWFALL_TICKS, {
         amplifier: DISMOUNT_SLOWFALL_AMPLIFIER,
@@ -298,6 +297,23 @@ function tickRiders() {
   for (const player of world.getAllPlayers()) {
     const lineId = player.getDynamicProperty(DP_RIDING_LINE);
     if (typeof lineId !== "string") continue;
+
+    const mountTick = player.getDynamicProperty(DP_MOUNT_TICK);
+    const ticksSinceMount =
+      typeof mountTick === "number" ? system.currentTick - mountTick : MOUNT_GRACE_TICKS;
+
+    // Sneak-to-dismount, after grace window
+    if (ticksSinceMount >= MOUNT_GRACE_TICKS && player.isSneaking) {
+      dismountPlayer(player);
+      continue;
+    }
+
+    // Auto-dismount if player no longer holds the handle
+    if (getMainhand(player)?.typeId !== HANDLE) {
+      dismountPlayer(player);
+      continue;
+    }
+
     const segIndex = player.getDynamicProperty(DP_RIDING_SEG);
     const currentSeg = typeof segIndex === "number" ? segIndex : 0;
     const segCount = player.getDynamicProperty(DP_RIDING_COUNT);
@@ -322,15 +338,15 @@ function tickRiders() {
       dismountPlayer(player);
       continue;
     }
-    player.addEffect("levitation", LEVITATION_TICKS, {
-      amplifier: LEVITATION_AMPLIFIER,
+    player.addEffect("slow_falling", RIDE_SLOWFALL_TICKS, {
+      amplifier: 0,
       showParticles: false,
     });
     player.setDynamicProperty(DP_RIDING_SEG, currentSeg + 1);
     if (typeof segCount === "number") {
       try {
         player.onScreenDisplay.setActionBar(
-          `§a▶ Ziplining §7(${currentSeg + 1} / ${segCount})`,
+          `§a▶ Ziplining §7(${currentSeg + 1} / ${segCount})  §8sneak to dismount`,
         );
       } catch (_) {}
     }
@@ -349,11 +365,11 @@ function spawnColumn(dim, loc, particle) {
   }
 }
 
-function spawnRopeBetween(dim, a, b, n) {
+function spawnRopeBetween(dim, a, b, n, particle) {
   for (let i = 1; i < n; i++) {
     const t = i / n;
     try {
-      dim.spawnParticle(ROPE_PARTICLE, {
+      dim.spawnParticle(particle, {
         x: a.x + (b.x - a.x) * t,
         y: a.y + (b.y - a.y) * t,
         z: a.z + (b.z - a.z) * t,
@@ -396,7 +412,7 @@ function tickParticles() {
         }
         const next = segs[i + 1];
         if (next && next.segIndex === segIndex + 1) {
-          spawnRopeBetween(dim, anchor.location, next.anchor.location, ROPE_INTERPOLATIONS);
+          spawnRopeBetween(dim, anchor.location, next.anchor.location, ROPE_INTERPOLATIONS, ROPE_PARTICLE);
         }
       }
     }
@@ -405,32 +421,26 @@ function tickParticles() {
 
 function tickPreviewAndHud() {
   for (const player of world.getAllPlayers()) {
-    const item = getMainhand(player);
-    const heldId = item?.typeId;
     const pendingLine = player.getDynamicProperty(DP_PENDING_LINE);
-    const isPending = typeof pendingLine === "string";
-
-    if (heldId === PLACER && (isPending || player.isSneaking)) {
-      const dim = player.dimension;
-      const hit = raycastEnd(player);
-      try { dim.spawnParticle(END_PARTICLE, hit); } catch (_) {}
-      if (isPending) {
-        const startAnchorId = player.getDynamicProperty(DP_PENDING_ANCHOR);
-        const startAnchor =
-          typeof startAnchorId === "string"
-            ? findAnchorById(dim, startAnchorId, player.location)
-            : null;
-        if (startAnchor) {
-          spawnRopeBetween(dim, startAnchor.location, hit, PREVIEW_ROPE_PARTICLES);
-          const dist = distance(startAnchor.location, hit);
-          try {
-            player.onScreenDisplay.setActionBar(
-              `§eZipline pending §7— aim and use to finish §f(${dist.toFixed(1)} blocks)`,
-            );
-          } catch (_) {}
-        }
-      }
-    }
+    if (typeof pendingLine !== "string") continue;
+    const item = getMainhand(player);
+    if (item?.typeId !== PLACER) continue;
+    const dim = player.dimension;
+    const hit = raycastEnd(player);
+    const startAnchorId = player.getDynamicProperty(DP_PENDING_ANCHOR);
+    const startAnchor =
+      typeof startAnchorId === "string"
+        ? findAnchorById(dim, startAnchorId, player.location)
+        : null;
+    if (!startAnchor) continue;
+    try { dim.spawnParticle(END_PARTICLE, hit); } catch (_) {}
+    spawnRopeBetween(dim, startAnchor.location, hit, PREVIEW_ROPE_PARTICLES, PREVIEW_PARTICLE);
+    const dist = distance(startAnchor.location, hit);
+    try {
+      player.onScreenDisplay.setActionBar(
+        `§eZipline pending §7— use spool to finish §f(${dist.toFixed(1)} blocks) §8· wrench to cancel`,
+      );
+    } catch (_) {}
   }
 }
 
@@ -438,16 +448,14 @@ function handleUse(player, item) {
   if (!player || !item) return;
   const id = item.typeId;
   if (id === PLACER) {
-    if (player.isSneaking) {
-      placeStartAnchor(player);
-    } else if (typeof player.getDynamicProperty(DP_PENDING_LINE) === "string") {
+    if (typeof player.getDynamicProperty(DP_PENDING_LINE) === "string") {
       placeEndAndConnect(player);
     } else {
-      player.sendMessage("§eSneak + use to set the zipline start.");
+      placeStartAnchor(player);
     }
   } else if (id === WRENCH) {
-    if (player.isSneaking && typeof player.getDynamicProperty(DP_PENDING_LINE) === "string") {
-      cancelPending(player, false);
+    if (typeof player.getDynamicProperty(DP_PENDING_LINE) === "string") {
+      cancelPending(player);
       return;
     }
     const a = findAimedAnchor(player);
@@ -455,13 +463,11 @@ function handleUse(player, item) {
     else player.sendMessage("§eAim at a zipline anchor and use the wrench.");
   } else if (id === HANDLE) {
     if (typeof player.getDynamicProperty(DP_RIDING_LINE) === "string") {
-      dismountPlayer(player);
-      player.sendMessage("§eDismounted.");
-    } else {
-      const a = findAimedAnchor(player);
-      if (a) mountHandle(player, a);
-      else player.sendMessage("§eAim at a zipline to mount.");
+      return; // no-op while riding; sneak or swap item to dismount
     }
+    const a = findAimedAnchor(player);
+    if (a) mountHandle(player, a);
+    else player.sendMessage("§eAim at a zipline to mount.");
   }
 }
 

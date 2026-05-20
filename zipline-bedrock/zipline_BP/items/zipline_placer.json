@@ -12,8 +12,8 @@
       "minecraft:hand_equipped": true,
       "minecraft:use_modifiers": { "use_duration": 0.05, "movement_modifier": 1.0 },
       "minecraft:lore": [
-        "§7Sneak + Use: set start anchor",
-        "§7Use again (no sneak): finish the line",
+        "§7Use: set start anchor",
+        "§7Use again: finish the line",
         "§7Up to 96 blocks"
       ]
     }

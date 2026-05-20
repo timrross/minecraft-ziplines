@@ -12,8 +12,8 @@
       "minecraft:hand_equipped": true,
       "minecraft:use_modifiers": { "use_duration": 0.05, "movement_modifier": 1.0 },
       "minecraft:lore": [
-        "§7Use: mount the zipline you're aiming at",
-        "§7Use again: dismount"
+        "§7Use: mount the wire you're aiming at",
+        "§7Sneak: dismount mid-ride"
       ]
     }
   }

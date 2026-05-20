@@ -63,12 +63,13 @@ Realms is **not** supported — Realms only accepts Marketplace add-ons.
 
 | Item | Action | Effect |
 |---|---|---|
-| **Zipline Spool** (`zipline:placer`) | **Sneak + Use** | Sets the line start anchor where you're aiming. Shows a live aim preview. |
+| **Zipline Spool** (`zipline:placer`) | **Use** (no pending) | Sets the line start anchor where you're aiming. Shows a live preview. |
 | **Zipline Spool** | **Use** (after start set) | Finishes the line to where you're aiming (up to 96 segments). |
 | **Zipline Wrench** (`zipline:wrench`) | **Use** while aiming at a wire | Removes the entire line and drops 7 iron ingots. |
-| **Zipline Wrench** | **Sneak + Use** with pending placement | Cancels the pending line, removes the orphaned start anchor. |
-| **Zipline Handle** (`zipline:handle`) | **Use** while aiming at a wire | Mounts the line. You travel segment-by-segment with levitation. |
-| **Zipline Handle** | **Use** again | Dismounts (with 3s slow-falling to prevent fall damage). |
+| **Zipline Wrench** | **Use** with a pending placement | Cancels the pending line, removes the orphaned start anchor. |
+| **Zipline Handle** (`zipline:handle`) | **Use** while aiming at a wire | Mounts the line. You travel segment-by-segment with slow-falling. |
+| (any item) | **Sneak** while riding | Dismount (after a ~0.5s grace window from mount). |
+| (any item) | Swap to a different hotbar slot while riding | Auto-dismount. |
 
 Lines can be up to 96 blocks long. Anchors are spaced 1 block apart (96 max). Ride speed is ~20 blocks/second. Each player can have **up to 20 lines** active at once.
 
@@ -104,7 +105,8 @@ Crafting:
 ## Known limits / non-goals
 
 - 3D in-hand models are wired up via attachables (`zipline_RP/attachables/`, `models/entity/`, `animations/zipline.animation.json`). The inventory icon stays 2D — Bedrock only renders attachables when the item is equipped, by design. **Hold poses are placeholders** — see "Tuning the in-hand pose" below.
-- The wire is drawn with custom brown particles (`zipline:rope`) interpolated between anchors every 2 ticks within 48 blocks of any player. The **start** of each line gets a tall green column (`zipline:anchor_start`); the **end** gets a red column (`zipline:anchor_end`).
+- The wire is drawn with custom dark-grey particles (`zipline:rope`) interpolated between anchors every 2 ticks within 48 blocks of any player. The **start** of each line gets a tall green column (`zipline:anchor_start`); the **end** gets a red column (`zipline:anchor_end`). While placing, a live grey trail (`zipline:preview`) shows the line you're about to commit.
+- Inventory icons for the wrench and handle are placeholder programmer-art silhouettes. To upgrade them: open the matching `.geo.json` in Blockbench → File → Export → **Inventory Render** (or use the model viewport screenshot) → save as `zipline_RP/textures/items/zipline_{wrench,handle}.png` at 32×32. The 3D in-hand model is unaffected (it uses `zipline_cable.png`).
 - The Java pack detected "crafting" via floating-item collision; this port uses normal crafting recipes instead (more reliable).
 - Anchors are persistent entities. If chunks unload mid-ride the next-anchor lookup may fail and the player dismounts gracefully.
 

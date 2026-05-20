@@ -12,8 +12,8 @@
       "minecraft:hand_equipped": true,
       "minecraft:use_modifiers": { "use_duration": 0.05, "movement_modifier": 1.0 },
       "minecraft:lore": [
-        "§7Use: remove the line you're aiming at",
-        "§7Sneak + Use: cancel a pending placement"
+        "§7Use on a wire: remove the line",
+        "§7Use while placing: cancel placement"
       ]
     }
   }
