@@ -41,7 +41,7 @@
       "loop": true,
       "bones": {
         "bone": {
-          "rotation": [180, 0, 0]
+          "rotation": [180, 180, 0]
         }
       }
     },
@@ -49,7 +49,7 @@
       "loop": true,
       "bones": {
         "bone": {
-          "rotation": [180, 0, 0]
+          "rotation": [180, 180, 0]
         }
       }
     }

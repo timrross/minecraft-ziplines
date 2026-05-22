@@ -524,27 +524,36 @@ function cleanupOrphans() {
   return removed;
 }
 
-world.afterEvents.itemUse.subscribe(safe((event) => {
-  handleUse(event.source, event.itemStack);
-}));
+// Subscribe defensively: an after-event that doesn't exist on this game
+// version (e.g. itemUseOn was removed in @minecraft/server 2.x) must not
+// throw and halt the rest of the script — that previously stopped the ride
+// loop and scriptEventReceive from ever registering.
+function subscribeAfter(emitter, name, handler) {
+  const sig = emitter?.[name];
+  if (sig && typeof sig.subscribe === "function") {
+    sig.subscribe(safe(handler));
+  } else {
+    console.warn(`[zipline] after-event '${name}' unavailable on this version; skipping`);
+  }
+}
 
-world.afterEvents.itemUseOn.subscribe(safe((event) => {
+subscribeAfter(world.afterEvents, "itemUse", (event) => {
   handleUse(event.source, event.itemStack);
-}));
+});
 
-world.afterEvents.entityDie.subscribe(safe((event) => {
+subscribeAfter(world.afterEvents, "entityDie", (event) => {
   const dead = event.deadEntity;
   if (dead?.typeId === "minecraft:player") {
     dismountPlayer(dead);
     clearPending(dead);
   }
-}));
+});
 
-world.afterEvents.playerDimensionChange.subscribe(safe((event) => {
+subscribeAfter(world.afterEvents, "playerDimensionChange", (event) => {
   dismountPlayer(event.player);
-}));
+});
 
-system.afterEvents.scriptEventReceive.subscribe(safe((event) => {
+subscribeAfter(system.afterEvents, "scriptEventReceive", (event) => {
   if (event.id === "zipline:cleanup") {
     const removed = cleanupOrphans();
     const msg = `§a[zipline] Cleaned up ${removed} orphan anchor(s).`;
@@ -570,7 +579,7 @@ system.afterEvents.scriptEventReceive.subscribe(safe((event) => {
     player.sendMessage("§a[zipline] Gave Zipline Spool, Wrench, and Handle.");
     return;
   }
-}));
+});
 
 system.runInterval(safe(tickRiders), RIDE_TICK_INTERVAL);
 system.runInterval(safe(tickPreviewAndHud), PREVIEW_INTERVAL_TICKS);

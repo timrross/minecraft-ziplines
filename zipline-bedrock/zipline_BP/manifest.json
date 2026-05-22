@@ -4,7 +4,7 @@
     "name": "Zipline BP",
     "description": "Zipline behavior pack — build and ride ziplines.",
     "uuid": "c74cdcb9-d41a-4c3b-9774-3b1682f2d2d0",
-    "version": [1, 0, 8],
+    "version": [1, 0, 9],
     "min_engine_version": [1, 26, 0]
   },
   "modules": [
@@ -24,7 +24,7 @@
   "dependencies": [
     {
       "uuid": "ab9c628b-d5e9-4550-b79d-837794fd6378",
-      "version": [1, 0, 8]
+      "version": [1, 0, 9]
     },
     {
       "module_name": "@minecraft/server",
