@@ -41,7 +41,7 @@
       "loop": true,
       "bones": {
         "bb_main": {
-          "rotation": [0, -90, 0],
+          "rotation": [180, -90, 0],
           "position": [4, 4, -4]
         }
       }
@@ -50,7 +50,7 @@
       "loop": true,
       "bones": {
         "bb_main": {
-          "rotation": [-90, 0, 0],
+          "rotation": [90, 0, 0],
           "position": [0, 4, 2]
         }
       }

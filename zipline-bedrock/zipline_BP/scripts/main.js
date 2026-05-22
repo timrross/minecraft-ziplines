@@ -10,8 +10,9 @@ const MAX_LINE_BLOCKS = 96;
 const SEGMENT_BLOCKS = 1.0;
 const MAX_SEGMENTS = 96;
 const MIN_LINE_LENGTH = 2.0;
-const AIM_RADIUS = 5;
-const AIM_PERP_TOLERANCE = 0.9;
+const AIM_RADIUS = 7;
+const AIM_PERP_TOLERANCE = 1.6;
+const MOUNT_NEAREST_RADIUS = 4;
 const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 2;
 const REFUND_INGOTS = 7;
@@ -113,6 +114,28 @@ function findAimedAnchor(player) {
     if (perp < AIM_PERP_TOLERANCE && t < bestT) {
       best = a;
       bestT = t;
+    }
+  }
+  return best;
+}
+
+// Fallback for mounting: the closest anchor within a small radius of the
+// player, regardless of where they're looking. Makes "hook onto the wire
+// I'm standing next to" forgiving when precise aim at the thin cable fails.
+function findNearestAnchor(player, radius) {
+  const origin = player.getHeadLocation();
+  const candidates = player.dimension.getEntities({
+    type: ANCHOR,
+    location: origin,
+    maxDistance: radius,
+  });
+  let best = null;
+  let bestD = Infinity;
+  for (const a of candidates) {
+    const d = distance(a.location, origin);
+    if (d < bestD) {
+      best = a;
+      bestD = d;
     }
   }
   return best;
@@ -297,6 +320,7 @@ function mountHandle(player, anchor) {
     amplifier: 0,
     showParticles: false,
   });
+  player.sendMessage("§aHooked on — riding! §8sneak to dismount");
   player.playSound("note.chime", { volume: 1, pitch: 1.4 });
 }
 
@@ -486,9 +510,9 @@ function handleUse(player, item) {
     if (typeof player.getDynamicProperty(DP_RIDING_LINE) === "string") {
       return; // no-op while riding; sneak or swap item to dismount
     }
-    const a = findAimedAnchor(player);
+    const a = findAimedAnchor(player) ?? findNearestAnchor(player, MOUNT_NEAREST_RADIUS);
     if (a) mountHandle(player, a);
-    else player.sendMessage("§eAim at a zipline to mount.");
+    else player.sendMessage("§eGet closer to a zipline and aim at it to mount.");
   }
 }
 
