@@ -12,7 +12,7 @@ const MAX_SEGMENTS = 96;
 const MIN_LINE_LENGTH = 2.0;
 const AIM_RADIUS = 7;
 const AIM_PERP_TOLERANCE = 1.6;
-const MOUNT_NEAREST_RADIUS = 4;
+const MOUNT_NEAREST_RADIUS = 2.5;
 const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 4;
 const RIDE_HANG_OFFSET = 2.0; // blocks the player hangs below the wire
@@ -412,6 +412,12 @@ function tickRiders() {
     const segIndex = player.getDynamicProperty(DP_RIDING_SEG);
     const currentSeg = typeof segIndex === "number" ? segIndex : 0;
     const segCount = player.getDynamicProperty(DP_RIDING_COUNT);
+    // Kick off one anchor before the final one so the rider doesn't glide
+    // into the destination block.
+    if (typeof segCount === "number" && currentSeg + 1 >= segCount) {
+      dismountPlayer(player);
+      continue;
+    }
     const dim = player.dimension;
     const nearby = dim.getEntities({
       type: ANCHOR,
@@ -443,8 +449,10 @@ function tickRiders() {
       reached = false;
     }
     try {
-      // Preserve the player's own view rotation so they can look around.
-      player.teleport(pos, { rotation: player.getRotation() });
+      // No rotation option: forcing rotation each tick fights the player's
+      // mouse look. Plain teleport keeps their current facing, so they can
+      // look around freely while gliding.
+      player.teleport(pos);
     } catch (_) {
       dismountPlayer(player);
       continue;
@@ -518,9 +526,9 @@ function handleUse(player, item) {
     if (typeof player.getDynamicProperty(DP_RIDING_LINE) === "string") {
       return; // no-op while riding; sneak or swap item to dismount
     }
-    const a = findAimedAnchor(player) ?? findNearestAnchor(player, MOUNT_NEAREST_RADIUS);
+    const a = findNearestAnchor(player, MOUNT_NEAREST_RADIUS);
     if (a) mountHandle(player, a);
-    else player.sendMessage("§eGet closer to a zipline and aim at it to mount.");
+    else player.sendMessage("§eGet within ~2 blocks of a zipline to hook on.");
   }
 }
 
