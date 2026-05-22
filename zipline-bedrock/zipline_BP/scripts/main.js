@@ -24,13 +24,11 @@ const MOUNT_GRACE_TICKS = 10;
 
 const PARTICLE_INTERVAL_TICKS = 2;
 const PARTICLE_VIEW_RADIUS = 48;
-const PREVIEW_PARTICLE = "zipline:preview";
 const START_PARTICLE = "zipline:anchor_start";
 const END_PARTICLE = "zipline:anchor_end";
 const ENDPOINT_COLUMN_HEIGHT = 5;
 const ENDPOINT_COLUMN_STEP = 0.2;
 const PREVIEW_INTERVAL_TICKS = 2;
-const PREVIEW_ROPE_PARTICLES = 12;
 
 const MAX_LINES_PER_PLAYER = 20;
 const DIMENSION_IDS = ["minecraft:overworld", "minecraft:nether", "minecraft:the_end"];
@@ -45,6 +43,8 @@ const DP_RIDING_LINE = "zipline:ridingLine";
 const DP_RIDING_SEG = "zipline:ridingSeg";
 const DP_RIDING_COUNT = "zipline:ridingCount";
 const DP_MOUNT_TICK = "zipline:mountTick";
+const DP_PREVIEW_CABLE = "zipline:previewCable";
+const DP_PREVIEW = "zipline:isPreview";
 
 function safe(fn) {
   return (...args) => {
@@ -150,7 +150,45 @@ function findAnchorById(dim, anchorId, near) {
   return anchors.find((e) => e.id === anchorId) ?? null;
 }
 
+function findCableById(dim, cableId, near) {
+  if (typeof cableId !== "string") return null;
+  const cables = dim.getEntities({
+    type: CABLE,
+    location: near,
+    maxDistance: MAX_LINE_BLOCKS + 16,
+  });
+  return cables.find((e) => e.id === cableId) ?? null;
+}
+
+// Point the cable from startLoc toward endLoc and stretch it to fit. yaw/pitch
+// use Minecraft's convention (yaw 0 = +Z); the geometry/animation map them onto
+// the bar. Shared by committed lines and the live placement preview.
+function setCableTransform(cable, startLoc, endLoc) {
+  const dx = endLoc.x - startLoc.x;
+  const dy = endLoc.y - startLoc.y;
+  const dz = endLoc.z - startLoc.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const horiz = Math.sqrt(dx * dx + dz * dz);
+  const yaw = (Math.atan2(-dx, dz) * 180) / Math.PI;
+  const pitch = (Math.atan2(-dy, horiz) * 180) / Math.PI;
+  try {
+    cable.setProperty("zipline:length", Math.max(0.01, Math.min(128, dist)));
+    cable.setProperty("zipline:yaw", yaw);
+    cable.setProperty("zipline:pitch", pitch);
+  } catch (_) {}
+}
+
+function removePreviewCable(player) {
+  const id = player.getDynamicProperty(DP_PREVIEW_CABLE);
+  const c = findCableById(player.dimension, id, player.location);
+  if (c) {
+    try { c.remove(); } catch (_) {}
+  }
+  player.setDynamicProperty(DP_PREVIEW_CABLE, undefined);
+}
+
 function clearPending(player) {
+  removePreviewCable(player);
   player.setDynamicProperty(DP_PENDING_LINE, undefined);
   player.setDynamicProperty(DP_PENDING_ANCHOR, undefined);
 }
@@ -194,20 +232,27 @@ function placeStartAnchor(player) {
 // 1-block bar along +Z; we stretch it to the line length and rotate it to
 // point start -> end via client-synced entity properties (applied in the
 // cable animation). yaw/pitch use Minecraft's convention (yaw 0 = +Z).
-function spawnCable(dim, lineId, startLoc, endLoc, dist) {
-  const dx = endLoc.x - startLoc.x;
-  const dy = endLoc.y - startLoc.y;
-  const dz = endLoc.z - startLoc.z;
-  const horiz = Math.sqrt(dx * dx + dz * dz);
-  const yaw = (Math.atan2(-dx, dz) * 180) / Math.PI;
-  const pitch = (Math.atan2(-dy, horiz) * 180) / Math.PI;
+function spawnCable(dim, lineId, startLoc, endLoc) {
   try {
     const cable = dim.spawnEntity(CABLE, startLoc);
     cable.setDynamicProperty(DP_LINE_ID, lineId);
-    cable.setProperty("zipline:length", Math.max(0.01, Math.min(128, dist)));
-    cable.setProperty("zipline:yaw", yaw);
-    cable.setProperty("zipline:pitch", pitch);
+    setCableTransform(cable, startLoc, endLoc);
   } catch (_) {}
+}
+
+// Spawn-on-demand ghost cable that tracks the player's aim during placement.
+function updatePreviewCable(player, dim, startLoc, endLoc) {
+  let cable = findCableById(dim, player.getDynamicProperty(DP_PREVIEW_CABLE), startLoc);
+  if (!cable) {
+    try {
+      cable = dim.spawnEntity(CABLE, startLoc);
+      cable.setDynamicProperty(DP_PREVIEW, 1);
+      player.setDynamicProperty(DP_PREVIEW_CABLE, cable.id);
+    } catch (_) {
+      return;
+    }
+  }
+  setCableTransform(cable, startLoc, endLoc);
 }
 
 function placeEndAndConnect(player) {
@@ -245,7 +290,7 @@ function placeEndAndConnect(player) {
     a.setDynamicProperty(DP_LINE_ID, lineId);
     a.setDynamicProperty(DP_SEG_INDEX, i);
   }
-  spawnCable(dim, lineId, startLoc, endLoc, dist);
+  spawnCable(dim, lineId, startLoc, endLoc);
   startAnchor.setDynamicProperty(DP_SEG_COUNT, segCount);
   clearPending(player);
   player.sendMessage(`§aZipline created (${segCount} segments, ${dist.toFixed(1)} blocks).`);
@@ -414,19 +459,6 @@ function spawnColumn(dim, loc, particle) {
   }
 }
 
-function spawnRopeBetween(dim, a, b, n, particle) {
-  for (let i = 1; i < n; i++) {
-    const t = i / n;
-    try {
-      dim.spawnParticle(particle, {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t,
-        z: a.z + (b.z - a.z) * t,
-      });
-    } catch (_) {}
-  }
-}
-
 function tickParticles() {
   const drawnLines = new Set();
   for (const player of world.getAllPlayers()) {
@@ -457,8 +489,8 @@ function tickParticles() {
         } else if (typeof segCount === "number" && segIndex === segCount) {
           spawnColumn(dim, anchor.location, END_PARTICLE);
         }
-        // The wire between anchors is rendered by the native leash chain
-        // (see placeEndAndConnect), so no per-segment rope particles here.
+        // The wire itself is the zipline:cable entity (see spawnCable);
+        // these columns just mark the line's start (green) and end (red).
       }
     }
   }
@@ -467,19 +499,25 @@ function tickParticles() {
 function tickPreviewAndHud() {
   for (const player of world.getAllPlayers()) {
     const pendingLine = player.getDynamicProperty(DP_PENDING_LINE);
-    if (typeof pendingLine !== "string") continue;
     const item = getMainhand(player);
-    if (item?.typeId !== PLACER) continue;
+    // Only show the preview while a start is pending and the spool is held.
+    if (typeof pendingLine !== "string" || item?.typeId !== PLACER) {
+      removePreviewCable(player);
+      continue;
+    }
     const dim = player.dimension;
-    const hit = raycastEnd(player);
     const startAnchorId = player.getDynamicProperty(DP_PENDING_ANCHOR);
     const startAnchor =
       typeof startAnchorId === "string"
         ? findAnchorById(dim, startAnchorId, player.location)
         : null;
-    if (!startAnchor) continue;
-    try { dim.spawnParticle(END_PARTICLE, hit); } catch (_) {}
-    spawnRopeBetween(dim, startAnchor.location, hit, PREVIEW_ROPE_PARTICLES, PREVIEW_PARTICLE);
+    if (!startAnchor) {
+      removePreviewCable(player);
+      continue;
+    }
+    const hit = raycastEnd(player);
+    // Live ghost cable from the start anchor to where the player is aiming.
+    updatePreviewCable(player, dim, startAnchor.location, hit);
     const dist = distance(startAnchor.location, hit);
     try {
       player.onScreenDisplay.setActionBar(
@@ -531,7 +569,8 @@ function cleanupOrphans() {
     const cables = dim.getEntities({ type: CABLE });
     for (const a of [...all, ...cables]) {
       const id = a.getDynamicProperty(DP_LINE_ID);
-      if (typeof id === "string" && !livingLines.has(id)) {
+      const isPreview = a.getDynamicProperty(DP_PREVIEW) === 1;
+      if (isPreview || (typeof id === "string" && !livingLines.has(id))) {
         try {
           a.remove();
           removed++;
