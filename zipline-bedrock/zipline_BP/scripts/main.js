@@ -14,7 +14,8 @@ const AIM_RADIUS = 7;
 const AIM_PERP_TOLERANCE = 1.6;
 const MOUNT_NEAREST_RADIUS = 4;
 const RIDE_TICK_INTERVAL = 1;
-const RIDE_LOOKAHEAD = 2;
+const RIDE_LOOKAHEAD = 4;
+const RIDE_HANG_OFFSET = 2.0; // blocks the player hangs below the wire
 
 const RIDE_SLOWFALL_TICKS = 40;
 const DISMOUNT_SLOWFALL_TICKS = 60;
@@ -332,6 +333,11 @@ function removeLine(player, anchor) {
   player.playSound("note.bass", { volume: 0.7, pitch: 1.5 });
 }
 
+// Point on the wire where the rider's feet go, so they hang suspended below it.
+function hangBelow(loc) {
+  return { x: loc.x, y: loc.y - RIDE_HANG_OFFSET, z: loc.z };
+}
+
 function mountHandle(player, anchor) {
   const lineId = anchor.getDynamicProperty(DP_LINE_ID);
   if (typeof lineId !== "string") return;
@@ -357,6 +363,8 @@ function mountHandle(player, anchor) {
     amplifier: 0,
     showParticles: false,
   });
+  // Snap onto the line (hanging below the anchor) so the ride can advance.
+  try { player.teleport(hangBelow(anchor.location)); } catch (_) {}
   player.sendMessage("§aHooked on — riding! §8sneak to dismount");
   player.playSound("note.chime", { volume: 1, pitch: 1.4 });
 }
@@ -419,7 +427,7 @@ function tickRiders() {
       continue;
     }
     try {
-      player.teleport(next.location);
+      player.teleport(hangBelow(next.location));
     } catch (_) {
       dismountPlayer(player);
       continue;
