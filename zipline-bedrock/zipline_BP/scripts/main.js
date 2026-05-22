@@ -15,7 +15,6 @@ const AIM_PERP_TOLERANCE = 1.6;
 const MOUNT_NEAREST_RADIUS = 4;
 const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 2;
-const REFUND_INGOTS = 7;
 
 const RIDE_SLOWFALL_TICKS = 40;
 const DISMOUNT_SLOWFALL_TICKS = 60;
@@ -60,7 +59,7 @@ function distance(a, b) {
 }
 
 function getMainhand(player) {
-  const eq = player.getComponent("equippable");
+  const eq = player.getComponent("minecraft:equippable");
   return eq?.getEquipment(EquipmentSlot.Mainhand);
 }
 
@@ -329,7 +328,6 @@ function removeLine(player, anchor) {
       } catch (_) {}
     }
   }
-  dim.spawnItem(new ItemStack("minecraft:iron_ingot", REFUND_INGOTS), player.location);
   player.sendMessage(`§cZipline removed (${removed} segments).`);
   player.playSound("note.bass", { volume: 0.7, pitch: 1.5 });
 }
@@ -560,7 +558,7 @@ system.afterEvents.scriptEventReceive.subscribe(safe((event) => {
       world.sendMessage("§c[zipline] Run /scriptevent zipline:give as a player.");
       return;
     }
-    const inv = player.getComponent("inventory")?.container;
+    const inv = player.getComponent("minecraft:inventory")?.container;
     if (!inv) return;
     for (const id of [PLACER, WRENCH, HANDLE]) {
       try {

@@ -40,18 +40,16 @@
     "animation.zipline.handle.hold_first_person": {
       "loop": true,
       "bones": {
-        "bb_main": {
-          "rotation": [180, -90, 0],
-          "position": [4, 4, -4]
+        "bone": {
+          "rotation": [180, 0, 0]
         }
       }
     },
     "animation.zipline.handle.hold_third_person": {
       "loop": true,
       "bones": {
-        "bb_main": {
-          "rotation": [90, 0, 0],
-          "position": [0, 4, 2]
+        "bone": {
+          "rotation": [180, 0, 0]
         }
       }
     }
