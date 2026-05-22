@@ -1,6 +1,6 @@
 # Zipline — Bedrock Edition Add-On
 
-A Bedrock port of the "Zipline by Lubcubs" Java datapack. Targets Minecraft Bedrock **1.21+**, uses the stable `@minecraft/server` Script API (no beta APIs, no `@minecraft/server-admin`), and is Marketplace / Realms compatible.
+Build rideable ziplines in Minecraft Bedrock. Targets Minecraft Bedrock **1.21+**, uses the stable `@minecraft/server` Script API (no beta APIs, no `@minecraft/server-admin`), and is Marketplace / Realms compatible.
 
 ## Layout
 
@@ -21,7 +21,7 @@ zipline-bedrock/
     └── texts/
 ```
 
-Textures are reused from the original Java resource pack (`../zipline-rp`). Items currently render as flat icons; if you want the original 3D in-hand look you'll need to add Bedrock **attachables** with custom geometry (the Java Blockbench models don't apply on Bedrock).
+Items render as flat inventory icons; the 3D in-hand look is provided by Bedrock **attachables** with custom geometry (`zipline_RP/attachables/`).
 
 ## Install
 
@@ -115,9 +115,9 @@ Crafting:
 ## Known limits / non-goals
 
 - 3D in-hand models are wired up via attachables (`zipline_RP/attachables/`, `models/entity/`, `animations/zipline.animation.json`). The inventory icon stays 2D — Bedrock only renders attachables when the item is equipped, by design. **Hold poses are placeholders** — see "Tuning the in-hand pose" below.
-- The wire is drawn with custom dark-grey particles (`zipline:rope`) interpolated between anchors every 2 ticks within 48 blocks of any player. The **start** of each line gets a tall green column (`zipline:anchor_start`); the **end** gets a red column (`zipline:anchor_end`). While placing, a live grey trail (`zipline:preview`) shows the line you're about to commit.
+- The wire is rendered as a native **leash chain**: each anchor is leashed to its predecessor (`minecraft:leashable` on `zipline:anchor`, leashed via `leashTo` at creation). Because segments are ~1 block apart, each rope sags negligibly and the chain reads as a near-straight cable — with no per-tick particle cost. The leash uses the vanilla brown lead texture. The **start** of each line still gets a tall green column (`zipline:anchor_start`); the **end** gets a red column (`zipline:anchor_end`). While placing, a live grey particle trail (`zipline:preview`) shows the line you're about to commit.
 - Inventory icons for the wrench and handle are placeholder programmer-art silhouettes. To upgrade them: open the matching `.geo.json` in Blockbench → File → Export → **Inventory Render** (or use the model viewport screenshot) → save as `zipline_RP/textures/items/zipline_{wrench,handle}.png` at 32×32. The 3D in-hand model is unaffected (it uses `zipline_cable.png`).
-- The Java pack detected "crafting" via floating-item collision; this port uses normal crafting recipes instead (more reliable).
+- Crafting uses normal recipe-table recipes.
 - Anchors are persistent entities. If chunks unload mid-ride the next-anchor lookup may fail and the player dismounts gracefully.
 
 ## Tuning the in-hand pose
@@ -141,11 +141,11 @@ If a face renders magenta, the texture path in the attachable is wrong (omit `.p
 |---|---|
 | `/scriptevent zipline:cleanup` | Removes any anchor whose start anchor (segment 0) is missing — i.e. orphans from manually killed entities or partially failed placements. Reports the count to whoever ran it. |
 
-## Reliability notes (vs. the Java original)
+## Reliability notes
 
-- **No `@p`-inside-`@e` bug:** every action is tied to a specific player passed through the event.
-- **No 20-segment hard cap unrolled by hand** — `MAX_SEGMENTS = 96`.
-- **No `forceload` leak:** Bedrock chunks don't need it; anchors are persistent.
+- **Player-scoped actions:** every action is tied to a specific player passed through the event.
+- **Up to 96 segments per line** — `MAX_SEGMENTS = 96`.
+- **No `forceload` needed:** Bedrock chunks don't require it; anchors are persistent.
 - **Death + dimension-change cleanup:** ride state cleared automatically.
 - **Slow-falling on dismount:** no surprise fall damage at line ends.
 - **Per-player line cap (20):** prevents griefer-driven entity sprawl.

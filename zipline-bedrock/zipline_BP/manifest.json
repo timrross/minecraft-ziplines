@@ -2,7 +2,7 @@
   "format_version": 2,
   "header": {
     "name": "Zipline BP",
-    "description": "Zipline behavior pack — by Lubcubs (Bedrock port)",
+    "description": "Zipline behavior pack — build and ride ziplines.",
     "uuid": "c74cdcb9-d41a-4c3b-9774-3b1682f2d2d0",
     "version": [1, 0, 0],
     "min_engine_version": [1, 21, 0]

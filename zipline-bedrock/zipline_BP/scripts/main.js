@@ -22,11 +22,9 @@ const MOUNT_GRACE_TICKS = 10;
 
 const PARTICLE_INTERVAL_TICKS = 2;
 const PARTICLE_VIEW_RADIUS = 48;
-const ROPE_PARTICLE = "zipline:rope";
 const PREVIEW_PARTICLE = "zipline:preview";
 const START_PARTICLE = "zipline:anchor_start";
 const END_PARTICLE = "zipline:anchor_end";
-const ROPE_INTERPOLATIONS = 8;
 const ENDPOINT_COLUMN_HEIGHT = 5;
 const ENDPOINT_COLUMN_STEP = 0.2;
 const PREVIEW_INTERVAL_TICKS = 2;
@@ -193,6 +191,7 @@ function placeEndAndConnect(player) {
   const stepX = (endLoc.x - startLoc.x) / segCount;
   const stepY = (endLoc.y - startLoc.y) / segCount;
   const stepZ = (endLoc.z - startLoc.z) / segCount;
+  let prev = startAnchor;
   for (let i = 1; i <= segCount; i++) {
     const loc = {
       x: startLoc.x + stepX * i,
@@ -202,6 +201,13 @@ function placeEndAndConnect(player) {
     const a = dim.spawnEntity(ANCHOR, loc);
     a.setDynamicProperty(DP_LINE_ID, lineId);
     a.setDynamicProperty(DP_SEG_INDEX, i);
+    // Draw the visible wire as a chain of native leashes: each anchor is
+    // leashed to its predecessor. Segments are ~1 block apart, so each rope
+    // sags negligibly and the chain reads as a near-straight cable.
+    try {
+      a.getComponent("minecraft:leashable")?.leashTo(prev);
+    } catch (_) {}
+    prev = a;
   }
   startAnchor.setDynamicProperty(DP_SEG_COUNT, segCount);
   clearPending(player);
@@ -407,13 +413,9 @@ function tickParticles() {
           spawnColumn(dim, anchor.location, START_PARTICLE);
         } else if (typeof segCount === "number" && segIndex === segCount) {
           spawnColumn(dim, anchor.location, END_PARTICLE);
-        } else {
-          try { dim.spawnParticle(ROPE_PARTICLE, anchor.location); } catch (_) {}
         }
-        const next = segs[i + 1];
-        if (next && next.segIndex === segIndex + 1) {
-          spawnRopeBetween(dim, anchor.location, next.anchor.location, ROPE_INTERPOLATIONS, ROPE_PARTICLE);
-        }
+        // The wire between anchors is rendered by the native leash chain
+        // (see placeEndAndConnect), so no per-segment rope particles here.
       }
     }
   }

@@ -22,7 +22,13 @@
       "minecraft:is_hidden_when_invisible": {},
       "minecraft:variant": { "value": 0 },
       "minecraft:nameable": {},
-      "minecraft:persistent": {}
+      "minecraft:persistent": {},
+      "minecraft:leashable": {
+        "soft_distance": 64.0,
+        "hard_distance": 64.0,
+        "max_distance": 64.0,
+        "can_be_stolen": false
+      }
     }
   }
 }
