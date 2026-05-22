@@ -3,6 +3,7 @@
   "minecraft:recipe_shaped": {
     "description": { "identifier": "zipline:handle_recipe" },
     "tags": ["crafting_table"],
+    "unlock": { "context": "AlwaysUnlocked" },
     "pattern": [
       "III",
       "T T",

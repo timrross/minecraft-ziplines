@@ -3,6 +3,7 @@
   "minecraft:recipe_shaped": {
     "description": { "identifier": "zipline:wrench_recipe" },
     "tags": ["crafting_table"],
+    "unlock": { "context": "AlwaysUnlocked" },
     "pattern": [
       " I ",
       " RI",
