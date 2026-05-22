@@ -5,6 +5,7 @@ const WRENCH = "zipline:wrench";
 const HANDLE = "zipline:handle";
 const ANCHOR = "zipline:anchor";
 const CABLE = "zipline:cable";
+const TROLLEY = "zipline:trolley";
 
 const MAX_LINE_BLOCKS = 96;
 const SEGMENT_BLOCKS = 1.0;
@@ -38,6 +39,7 @@ const DP_RIDING_LINE = "zipline:ridingLine";
 const DP_RIDING_SEG = "zipline:ridingSeg";
 const DP_RIDING_COUNT = "zipline:ridingCount";
 const DP_MOUNT_TICK = "zipline:mountTick";
+const DP_RIDING_TROLLEY = "zipline:ridingTrolley";
 const DP_PREVIEW_CABLE = "zipline:previewCable";
 const DP_PREVIEW = "zipline:isPreview";
 
@@ -153,6 +155,16 @@ function findCableById(dim, cableId, near) {
     maxDistance: MAX_LINE_BLOCKS + 16,
   });
   return cables.find((e) => e.id === cableId) ?? null;
+}
+
+function findTrolleyById(dim, trolleyId, near) {
+  if (typeof trolleyId !== "string") return null;
+  const trolleys = dim.getEntities({
+    type: TROLLEY,
+    location: near,
+    maxDistance: MAX_LINE_BLOCKS + 16,
+  });
+  return trolleys.find((e) => e.id === trolleyId) ?? null;
 }
 
 // Point the cable from startLoc toward endLoc and stretch it to fit. yaw/pitch
@@ -342,10 +354,8 @@ function hangBelow(loc) {
 function mountHandle(player, anchor) {
   const lineId = anchor.getDynamicProperty(DP_LINE_ID);
   if (typeof lineId !== "string") return;
+  if (typeof player.getDynamicProperty(DP_RIDING_TROLLEY) === "string") return;
   const segIndex = anchor.getDynamicProperty(DP_SEG_INDEX);
-  player.setDynamicProperty(DP_RIDING_LINE, lineId);
-  player.setDynamicProperty(DP_RIDING_SEG, typeof segIndex === "number" ? segIndex : 0);
-  player.setDynamicProperty(DP_MOUNT_TICK, system.currentTick);
   const dim = player.dimension;
   const all = dim.getEntities({
     type: ANCHOR,
@@ -356,28 +366,44 @@ function mountHandle(player, anchor) {
     (a) => a.getDynamicProperty(DP_LINE_ID) === lineId && a.getDynamicProperty(DP_SEG_INDEX) === 0,
   );
   const segCount = start?.getDynamicProperty(DP_SEG_COUNT);
-  player.setDynamicProperty(
-    DP_RIDING_COUNT,
-    typeof segCount === "number" ? segCount : MAX_SEGMENTS,
-  );
-  player.addEffect("slow_falling", RIDE_SLOWFALL_TICKS, {
-    amplifier: 0,
-    showParticles: false,
-  });
-  // Snap onto the line (hanging below the anchor) so the ride can advance.
-  try { player.teleport(hangBelow(anchor.location)); } catch (_) {}
+
+  // Seat the player on an invisible trolley we move along the line. Riding a
+  // mount (like a minecart) keeps the camera smooth and lets the player look
+  // around freely — directly teleporting the player every tick did not.
+  let trolley;
+  try {
+    trolley = dim.spawnEntity(TROLLEY, hangBelow(anchor.location));
+    trolley.getComponent("minecraft:rideable")?.addRider(player);
+  } catch (_) {
+    if (trolley) { try { trolley.remove(); } catch (_) {} }
+    player.sendMessage("§cCouldn't hook onto the zipline.");
+    return;
+  }
+
+  player.setDynamicProperty(DP_RIDING_LINE, lineId);
+  player.setDynamicProperty(DP_RIDING_SEG, typeof segIndex === "number" ? segIndex : 0);
+  player.setDynamicProperty(DP_RIDING_COUNT, typeof segCount === "number" ? segCount : MAX_SEGMENTS);
+  player.setDynamicProperty(DP_RIDING_TROLLEY, trolley.id);
+  player.setDynamicProperty(DP_MOUNT_TICK, system.currentTick);
   player.sendMessage("§aHooked on — riding! §8sneak to dismount");
   player.playSound("note.chime", { volume: 1, pitch: 1.4 });
 }
 
 function dismountPlayer(player) {
   const wasRiding = typeof player.getDynamicProperty(DP_RIDING_LINE) === "string";
+  const trolleyId = player.getDynamicProperty(DP_RIDING_TROLLEY);
   player.setDynamicProperty(DP_RIDING_LINE, undefined);
   player.setDynamicProperty(DP_RIDING_SEG, undefined);
   player.setDynamicProperty(DP_RIDING_COUNT, undefined);
+  player.setDynamicProperty(DP_RIDING_TROLLEY, undefined);
   player.setDynamicProperty(DP_MOUNT_TICK, undefined);
+  // Removing the trolley ejects the rider.
+  if (typeof trolleyId === "string") {
+    const t = findTrolleyById(player.dimension, trolleyId, player.location);
+    if (t) { try { t.remove(); } catch (_) {} }
+  }
   if (wasRiding) {
-    try { player.removeEffect("slow_falling"); } catch (_) {}
+    // Brief slow-falling so dropping off the line doesn't deal fall damage.
     try {
       player.addEffect("slow_falling", DISMOUNT_SLOWFALL_TICKS, {
         amplifier: DISMOUNT_SLOWFALL_AMPLIFIER,
@@ -393,17 +419,26 @@ function tickRiders() {
     const lineId = player.getDynamicProperty(DP_RIDING_LINE);
     if (typeof lineId !== "string") continue;
 
-    const mountTick = player.getDynamicProperty(DP_MOUNT_TICK);
-    const ticksSinceMount =
-      typeof mountTick === "number" ? system.currentTick - mountTick : MOUNT_GRACE_TICKS;
-
-    // Sneak-to-dismount, after grace window
-    if (ticksSinceMount >= MOUNT_GRACE_TICKS && player.isSneaking) {
+    const dim = player.dimension;
+    const trolley = findTrolleyById(dim, player.getDynamicProperty(DP_RIDING_TROLLEY), player.location);
+    if (!trolley) {
       dismountPlayer(player);
       continue;
     }
 
-    // Auto-dismount if player no longer holds the handle
+    const mountTick = player.getDynamicProperty(DP_MOUNT_TICK);
+    const ticksSinceMount =
+      typeof mountTick === "number" ? system.currentTick - mountTick : MOUNT_GRACE_TICKS;
+
+    // After the grace window, end the ride if the player left the trolley
+    // (sneaked off / vanilla dismount) or stopped holding the handle.
+    if (ticksSinceMount >= MOUNT_GRACE_TICKS) {
+      const ridingOn = player.getComponent("minecraft:riding")?.entityRidingOn;
+      if (!ridingOn || ridingOn.id !== trolley.id || player.isSneaking) {
+        dismountPlayer(player);
+        continue;
+      }
+    }
     if (getMainhand(player)?.typeId !== HANDLE) {
       dismountPlayer(player);
       continue;
@@ -418,10 +453,9 @@ function tickRiders() {
       dismountPlayer(player);
       continue;
     }
-    const dim = player.dimension;
     const nearby = dim.getEntities({
       type: ANCHOR,
-      location: player.location,
+      location: trolley.location,
       maxDistance: RIDE_LOOKAHEAD,
     });
     const next = nearby.find(
@@ -433,10 +467,10 @@ function tickRiders() {
       dismountPlayer(player);
       continue;
     }
-    // Glide toward the next anchor a fixed distance per tick (smooth, and
-    // slower than a full block hop). Only advance the segment once reached.
+    // Glide the trolley toward the next anchor a fixed distance per tick; the
+    // seated player rides along smoothly. Advance the segment once reached.
     const target = hangBelow(next.location);
-    const here = player.location;
+    const here = trolley.location;
     const dx = target.x - here.x;
     const dy = target.y - here.y;
     const dz = target.z - here.z;
@@ -449,18 +483,11 @@ function tickRiders() {
       reached = false;
     }
     try {
-      // No rotation option: forcing rotation each tick fights the player's
-      // mouse look. Plain teleport keeps their current facing, so they can
-      // look around freely while gliding.
-      player.teleport(pos);
+      trolley.teleport(pos);
     } catch (_) {
       dismountPlayer(player);
       continue;
     }
-    player.addEffect("slow_falling", RIDE_SLOWFALL_TICKS, {
-      amplifier: 0,
-      showParticles: false,
-    });
     if (reached) {
       player.setDynamicProperty(DP_RIDING_SEG, currentSeg + 1);
     }
@@ -534,8 +561,23 @@ function handleUse(player, item) {
 
 function cleanupOrphans() {
   let removed = 0;
+  // Trolleys still in use by an online rider; any others are strays (e.g. from
+  // a logout mid-ride) and get swept.
+  const activeTrolleys = new Set();
+  for (const p of world.getAllPlayers()) {
+    const t = p.getDynamicProperty(DP_RIDING_TROLLEY);
+    if (typeof t === "string") activeTrolleys.add(t);
+  }
   for (const dimId of DIMENSION_IDS) {
     const dim = world.getDimension(dimId);
+    for (const t of dim.getEntities({ type: TROLLEY })) {
+      if (!activeTrolleys.has(t.id)) {
+        try {
+          t.remove();
+          removed++;
+        } catch (_) {}
+      }
+    }
     const all = dim.getEntities({ type: ANCHOR });
     const livingLines = new Set();
     for (const a of all) {
