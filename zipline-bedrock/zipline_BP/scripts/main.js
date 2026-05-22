@@ -16,6 +16,7 @@ const MOUNT_NEAREST_RADIUS = 4;
 const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 4;
 const RIDE_HANG_OFFSET = 2.0; // blocks the player hangs below the wire
+const RIDE_SPEED = 0.4; // blocks moved per tick (~8 blocks/sec at 20 tps)
 
 const RIDE_SLOWFALL_TICKS = 40;
 const DISMOUNT_SLOWFALL_TICKS = 60;
@@ -426,8 +427,24 @@ function tickRiders() {
       dismountPlayer(player);
       continue;
     }
+    // Glide toward the next anchor a fixed distance per tick (smooth, and
+    // slower than a full block hop). Only advance the segment once reached.
+    const target = hangBelow(next.location);
+    const here = player.location;
+    const dx = target.x - here.x;
+    const dy = target.y - here.y;
+    const dz = target.z - here.z;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    let pos = target;
+    let reached = true;
+    if (d > RIDE_SPEED) {
+      const f = RIDE_SPEED / d;
+      pos = { x: here.x + dx * f, y: here.y + dy * f, z: here.z + dz * f };
+      reached = false;
+    }
     try {
-      player.teleport(hangBelow(next.location));
+      // Preserve the player's own view rotation so they can look around.
+      player.teleport(pos, { rotation: player.getRotation() });
     } catch (_) {
       dismountPlayer(player);
       continue;
@@ -436,7 +453,9 @@ function tickRiders() {
       amplifier: 0,
       showParticles: false,
     });
-    player.setDynamicProperty(DP_RIDING_SEG, currentSeg + 1);
+    if (reached) {
+      player.setDynamicProperty(DP_RIDING_SEG, currentSeg + 1);
+    }
     if (typeof segCount === "number") {
       try {
         player.onScreenDisplay.setActionBar(
