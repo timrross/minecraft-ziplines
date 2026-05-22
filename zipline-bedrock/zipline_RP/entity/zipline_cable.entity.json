@@ -1,0 +1,14 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "zipline:cable",
+      "materials": { "default": "entity_alphatest" },
+      "textures": { "default": "textures/particle/zipline_rope" },
+      "geometry": { "default": "geometry.zipline_cable" },
+      "animations": { "cable": "animation.zipline.cable" },
+      "scripts": { "animate": ["cable"] },
+      "render_controllers": ["controller.render.default"]
+    }
+  }
+}

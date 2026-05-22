@@ -4,6 +4,7 @@ const PLACER = "zipline:placer";
 const WRENCH = "zipline:wrench";
 const HANDLE = "zipline:handle";
 const ANCHOR = "zipline:anchor";
+const CABLE = "zipline:cable";
 
 const MAX_LINE_BLOCKS = 96;
 const SEGMENT_BLOCKS = 1.0;
@@ -166,6 +167,26 @@ function placeStartAnchor(player) {
   player.playSound("note.bell", { volume: 0.6, pitch: 1.4 });
 }
 
+// Spawn the single rigid cable entity for a line. The cable geometry is a
+// 1-block bar along +Z; we stretch it to the line length and rotate it to
+// point start -> end via client-synced entity properties (applied in the
+// cable animation). yaw/pitch use Minecraft's convention (yaw 0 = +Z).
+function spawnCable(dim, lineId, startLoc, endLoc, dist) {
+  const dx = endLoc.x - startLoc.x;
+  const dy = endLoc.y - startLoc.y;
+  const dz = endLoc.z - startLoc.z;
+  const horiz = Math.sqrt(dx * dx + dz * dz);
+  const yaw = (Math.atan2(-dx, dz) * 180) / Math.PI;
+  const pitch = (Math.atan2(-dy, horiz) * 180) / Math.PI;
+  try {
+    const cable = dim.spawnEntity(CABLE, startLoc);
+    cable.setDynamicProperty(DP_LINE_ID, lineId);
+    cable.setProperty("zipline:length", Math.max(0.01, Math.min(128, dist)));
+    cable.setProperty("zipline:yaw", yaw);
+    cable.setProperty("zipline:pitch", pitch);
+  } catch (_) {}
+}
+
 function placeEndAndConnect(player) {
   const lineId = player.getDynamicProperty(DP_PENDING_LINE);
   const startId = player.getDynamicProperty(DP_PENDING_ANCHOR);
@@ -191,7 +212,6 @@ function placeEndAndConnect(player) {
   const stepX = (endLoc.x - startLoc.x) / segCount;
   const stepY = (endLoc.y - startLoc.y) / segCount;
   const stepZ = (endLoc.z - startLoc.z) / segCount;
-  let prev = startAnchor;
   for (let i = 1; i <= segCount; i++) {
     const loc = {
       x: startLoc.x + stepX * i,
@@ -201,14 +221,8 @@ function placeEndAndConnect(player) {
     const a = dim.spawnEntity(ANCHOR, loc);
     a.setDynamicProperty(DP_LINE_ID, lineId);
     a.setDynamicProperty(DP_SEG_INDEX, i);
-    // Draw the visible wire as a chain of native leashes: each anchor is
-    // leashed to its predecessor. Segments are ~1 block apart, so each rope
-    // sags negligibly and the chain reads as a near-straight cable.
-    try {
-      a.getComponent("minecraft:leashable")?.leashTo(prev);
-    } catch (_) {}
-    prev = a;
   }
+  spawnCable(dim, lineId, startLoc, endLoc, dist);
   startAnchor.setDynamicProperty(DP_SEG_COUNT, segCount);
   clearPending(player);
   player.sendMessage(`§aZipline created (${segCount} segments, ${dist.toFixed(1)} blocks).`);
@@ -239,8 +253,13 @@ function removeLine(player, anchor) {
     location: anchor.location,
     maxDistance: MAX_LINE_BLOCKS + 16,
   });
+  const cables = dim.getEntities({
+    type: CABLE,
+    location: anchor.location,
+    maxDistance: MAX_LINE_BLOCKS + 16,
+  });
   let removed = 0;
-  for (const a of all) {
+  for (const a of [...all, ...cables]) {
     if (a.getDynamicProperty(DP_LINE_ID) === lineId) {
       try {
         a.remove();
@@ -485,7 +504,8 @@ function cleanupOrphans() {
         if (typeof id === "string") livingLines.add(id);
       }
     }
-    for (const a of all) {
+    const cables = dim.getEntities({ type: CABLE });
+    for (const a of [...all, ...cables]) {
       const id = a.getDynamicProperty(DP_LINE_ID);
       if (typeof id === "string" && !livingLines.has(id)) {
         try {

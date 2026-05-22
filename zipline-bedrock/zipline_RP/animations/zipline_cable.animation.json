@@ -1,0 +1,18 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.zipline.cable": {
+      "loop": true,
+      "bones": {
+        "bar": {
+          "rotation": [
+            "q.property('zipline:pitch')",
+            "q.property('zipline:yaw')",
+            0
+          ],
+          "scale": [1, 1, "math.max(q.property('zipline:length'), 0.01)"]
+        }
+      }
+    }
+  }
+}
