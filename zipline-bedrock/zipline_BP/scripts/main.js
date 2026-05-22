@@ -22,12 +22,6 @@ const DISMOUNT_SLOWFALL_TICKS = 60;
 const DISMOUNT_SLOWFALL_AMPLIFIER = 4;
 const MOUNT_GRACE_TICKS = 10;
 
-const PARTICLE_INTERVAL_TICKS = 2;
-const PARTICLE_VIEW_RADIUS = 48;
-const START_PARTICLE = "zipline:anchor_start";
-const END_PARTICLE = "zipline:anchor_end";
-const ENDPOINT_COLUMN_HEIGHT = 5;
-const ENDPOINT_COLUMN_STEP = 0.2;
 const PREVIEW_INTERVAL_TICKS = 2;
 
 const MAX_LINES_PER_PLAYER = 20;
@@ -447,55 +441,6 @@ function tickRiders() {
   }
 }
 
-function spawnColumn(dim, loc, particle) {
-  for (let i = 0; i < ENDPOINT_COLUMN_HEIGHT; i++) {
-    try {
-      dim.spawnParticle(particle, {
-        x: loc.x,
-        y: loc.y + i * ENDPOINT_COLUMN_STEP,
-        z: loc.z,
-      });
-    } catch (_) {}
-  }
-}
-
-function tickParticles() {
-  const drawnLines = new Set();
-  for (const player of world.getAllPlayers()) {
-    const dim = player.dimension;
-    const anchors = dim.getEntities({
-      type: ANCHOR,
-      location: player.location,
-      maxDistance: PARTICLE_VIEW_RADIUS,
-    });
-    const byLine = new Map();
-    for (const a of anchors) {
-      const lineId = a.getDynamicProperty(DP_LINE_ID);
-      const segIndex = a.getDynamicProperty(DP_SEG_INDEX);
-      if (typeof lineId !== "string" || typeof segIndex !== "number") continue;
-      if (!byLine.has(lineId)) byLine.set(lineId, []);
-      byLine.get(lineId).push({ anchor: a, segIndex });
-    }
-    for (const [lineId, segs] of byLine) {
-      if (drawnLines.has(lineId)) continue;
-      drawnLines.add(lineId);
-      segs.sort((x, y) => x.segIndex - y.segIndex);
-      const start = segs.find((s) => s.segIndex === 0);
-      const segCount = start?.anchor.getDynamicProperty(DP_SEG_COUNT);
-      for (let i = 0; i < segs.length; i++) {
-        const { anchor, segIndex } = segs[i];
-        if (segIndex === 0) {
-          spawnColumn(dim, anchor.location, START_PARTICLE);
-        } else if (typeof segCount === "number" && segIndex === segCount) {
-          spawnColumn(dim, anchor.location, END_PARTICLE);
-        }
-        // The wire itself is the zipline:cable entity (see spawnCable);
-        // these columns just mark the line's start (green) and end (red).
-      }
-    }
-  }
-}
-
 function tickPreviewAndHud() {
   for (const player of world.getAllPlayers()) {
     const pendingLine = player.getDynamicProperty(DP_PENDING_LINE);
@@ -630,5 +575,4 @@ system.afterEvents.scriptEventReceive.subscribe(safe((event) => {
 }));
 
 system.runInterval(safe(tickRiders), RIDE_TICK_INTERVAL);
-system.runInterval(safe(tickParticles), PARTICLE_INTERVAL_TICKS);
 system.runInterval(safe(tickPreviewAndHud), PREVIEW_INTERVAL_TICKS);

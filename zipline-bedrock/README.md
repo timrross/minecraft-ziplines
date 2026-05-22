@@ -43,7 +43,7 @@ Items render as flat inventory icons; the 3D in-hand look is provided by Bedrock
 ./build.sh
 ```
 
-Produces `dist/zipline_BP.mcpack`, `dist/zipline_RP.mcpack`, and `dist/zipline.mcaddon`. Open the `.mcaddon` on the device and it imports both packs in one tap.
+Produces version-stamped artifacts in `dist/` — e.g. `zipline_BP_v1.0.6.mcpack`, `zipline_RP_v1.0.6.mcpack`, and `zipline_v1.0.6.mcaddon` (the version is read from `zipline_BP/manifest.json`). Open the `.mcaddon` on the device and it imports both packs in one tap.
 
 ### Deploying on Bedrock Dedicated Server (BDS)
 
