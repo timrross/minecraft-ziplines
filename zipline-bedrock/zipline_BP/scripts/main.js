@@ -519,11 +519,31 @@ world.afterEvents.playerDimensionChange.subscribe(safe((event) => {
 }));
 
 system.afterEvents.scriptEventReceive.subscribe(safe((event) => {
-  if (event.id !== "zipline:cleanup") return;
-  const removed = cleanupOrphans();
-  const msg = `§a[zipline] Cleaned up ${removed} orphan anchor(s).`;
-  if (event.sourceEntity?.sendMessage) event.sourceEntity.sendMessage(msg);
-  else world.sendMessage(msg);
+  if (event.id === "zipline:cleanup") {
+    const removed = cleanupOrphans();
+    const msg = `§a[zipline] Cleaned up ${removed} orphan anchor(s).`;
+    if (event.sourceEntity?.sendMessage) event.sourceEntity.sendMessage(msg);
+    else world.sendMessage(msg);
+    return;
+  }
+  if (event.id === "zipline:give") {
+    const player = event.sourceEntity;
+    if (player?.typeId !== "minecraft:player") {
+      world.sendMessage("§c[zipline] Run /scriptevent zipline:give as a player.");
+      return;
+    }
+    const inv = player.getComponent("inventory")?.container;
+    if (!inv) return;
+    for (const id of [PLACER, WRENCH, HANDLE]) {
+      try {
+        inv.addItem(new ItemStack(id, 1));
+      } catch (e) {
+        player.sendMessage(`§c[zipline] Could not give ${id}: ${e}`);
+      }
+    }
+    player.sendMessage("§a[zipline] Gave Zipline Spool, Wrench, and Handle.");
+    return;
+  }
 }));
 
 system.runInterval(safe(tickRiders), RIDE_TICK_INTERVAL);

@@ -5,7 +5,7 @@
     "description": "Zipline behavior pack — build and ride ziplines.",
     "uuid": "c74cdcb9-d41a-4c3b-9774-3b1682f2d2d0",
     "version": [1, 0, 0],
-    "min_engine_version": [1, 21, 0]
+    "min_engine_version": [1, 26, 0]
   },
   "modules": [
     {
@@ -28,7 +28,7 @@
     },
     {
       "module_name": "@minecraft/server",
-      "version": "1.13.0"
+      "version": "2.7.0"
     }
   ]
 }
