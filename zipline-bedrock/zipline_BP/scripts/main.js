@@ -697,6 +697,11 @@ subscribeAfter(world.afterEvents, "playerDimensionChange", (event) => {
 });
 
 subscribeAfter(system.afterEvents, "scriptEventReceive", (event) => {
+  // Diagnostic that always lands in the Content Log when a script event
+  // fires. If /scriptevent zipline:give silently does nothing, the absence
+  // of this line tells us the handler isn't being reached at all.
+  console.warn(`[zipline] scriptEvent id=${event.id} sourceType=${event.sourceType} hasSourceEntity=${event.sourceEntity != null}`);
+
   if (event.id === "zipline:cleanup") {
     const removed = cleanupOrphans();
     const msg = `§a[zipline] Cleaned up ${removed} orphan anchor(s).`;
@@ -705,21 +710,35 @@ subscribeAfter(system.afterEvents, "scriptEventReceive", (event) => {
     return;
   }
   if (event.id === "zipline:give") {
-    const player = event.sourceEntity;
-    if (player?.typeId !== "minecraft:player") {
-      world.sendMessage("§c[zipline] Run /scriptevent zipline:give as a player.");
-      return;
+    // Resolve the player: prefer the source, fall back to the only online
+    // player if there's exactly one (covers chat sources that don't pass
+    // sourceEntity, or command-block runs in single-player worlds).
+    let player = event.sourceEntity;
+    if (!player || player.typeId !== "minecraft:player") {
+      const players = world.getAllPlayers();
+      if (players.length === 1) {
+        player = players[0];
+        world.sendMessage(`§7[zipline] (No source player on the event; giving to ${player.name}.)`);
+      } else {
+        world.sendMessage("§c[zipline] /scriptevent zipline:give needs a player source. Run it from chat with cheats on.");
+        return;
+      }
     }
     const inv = player.getComponent("minecraft:inventory")?.container;
-    if (!inv) return;
+    if (!inv) {
+      player.sendMessage("§c[zipline] Couldn't access your inventory component.");
+      return;
+    }
+    let given = 0;
     for (const id of [PLACER, WRENCH, HANDLE]) {
       try {
         inv.addItem(new ItemStack(id, 1));
+        given++;
       } catch (e) {
         player.sendMessage(`§c[zipline] Could not give ${id}: ${e}`);
       }
     }
-    player.sendMessage("§a[zipline] Gave Zipline Spool, Wrench, and Handle.");
+    player.sendMessage(`§a[zipline] Gave ${given} item(s): Spool, Wrench, Handle.`);
     return;
   }
 });

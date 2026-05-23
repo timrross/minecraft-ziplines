@@ -7,6 +7,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# Pre-build sanity: catches manifest drift, stale @minecraft/server version,
+# removed-event subscriptions, short-name getComponent, missing recipe unlock,
+# deprecated entity components. Fail fast before we ever produce an .mcaddon.
+node validate.js
+
 VERSION="$(node -e "process.stdout.write(require('./zipline_BP/manifest.json').header.version.join('.'))")"
 
 DIST="dist"
