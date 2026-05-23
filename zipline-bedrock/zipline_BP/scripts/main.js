@@ -1,4 +1,4 @@
-import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
+import { world, system, ItemStack, EquipmentSlot, EntityDamageCause } from "@minecraft/server";
 
 const PLACER = "zipline:placer";
 const WRENCH = "zipline:wrench";
@@ -18,6 +18,14 @@ const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 4;
 const RIDE_HANG_OFFSET = 2.0; // blocks the player hangs below the wire
 const RIDE_SPEED = 0.4; // blocks moved per tick (~8 blocks/sec at 20 tps)
+const RIDE_COLLISION_GRACE_TICKS = 5;          // ignore collisions for the first few ticks after mount
+const RIDE_BLOCK_LOOKAHEAD = RIDE_SPEED + 0.5; // how far the ray peeks down the line each tick
+const RIDE_MOB_RADIUS = 1.2;                    // sphere around trolley to check for mobs/players
+const RIDE_HEAD_OFFSET = 1.8;                   // rider head height above trolley
+const KNOCKBACK_HORIZ = 0.8;
+const KNOCKBACK_VERT = 0.4;
+const KNOCKBACK_DAMAGE = 3;
+const COLLISION_PARTICLE = "minecraft:critical_hit_emitter";
 
 const RIDE_SLOWFALL_TICKS = 40;
 const DISMOUNT_SLOWFALL_TICKS = 60;
@@ -351,6 +359,41 @@ function hangBelow(loc) {
   return { x: loc.x, y: loc.y - RIDE_HANG_OFFSET, z: loc.z };
 }
 
+// Look down the line for solid blocks or mobs in the rider's path.
+// Two rays / two scans cover both trolley level (feet) and wire level (head),
+// so a fence at head height knocks the rider off even when the trolley itself
+// would pass under cleanly. Zipline-owned entities (other trolleys, cables,
+// anchors) and item drops are excluded so two ziplines don't collide with
+// each other and ground litter doesn't trigger a knock-off.
+function checkRideCollision(dim, trolley, player, dx, dy, dz) {
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (len === 0) return null;
+  const unit = { x: dx / len, y: dy / len, z: dz / len };
+  const feet = trolley.location;
+  const head = { x: feet.x, y: feet.y + RIDE_HEAD_OFFSET, z: feet.z };
+  const rayOpts = {
+    maxDistance: RIDE_BLOCK_LOOKAHEAD,
+    includeLiquidBlocks: false,
+    includePassableBlocks: false,
+  };
+  for (const origin of [feet, head]) {
+    try {
+      if (dim.getBlockFromRay(origin, unit, rayOpts)) return "block";
+    } catch (_) {}
+  }
+  const queryBase = {
+    maxDistance: RIDE_MOB_RADIUS,
+    excludeTypes: [TROLLEY, CABLE, ANCHOR, "minecraft:item", "minecraft:xp_orb"],
+  };
+  for (const origin of [feet, head]) {
+    try {
+      const nearby = dim.getEntities({ ...queryBase, location: origin });
+      for (const e of nearby) if (e.id !== player.id) return "mob";
+    } catch (_) {}
+  }
+  return null;
+}
+
 function mountHandle(player, anchor) {
   const lineId = anchor.getDynamicProperty(DP_LINE_ID);
   if (typeof lineId !== "string") return;
@@ -412,6 +455,20 @@ function dismountPlayer(player) {
     } catch (_) {}
     try { player.onScreenDisplay.setActionBar(""); } catch (_) {}
   }
+}
+
+// End the ride because something was in the path. Order matters: eject the
+// rider first (dismountPlayer removes the trolley, which ejects), then apply
+// knockback — applyKnockback on a passenger is silently absorbed by the mount.
+function knockOffRide(player, dim, dx, dz) {
+  const flat = Math.sqrt(dx * dx + dz * dz) || 1;
+  const backX = (-dx / flat) * KNOCKBACK_HORIZ;
+  const backZ = (-dz / flat) * KNOCKBACK_HORIZ;
+  dismountPlayer(player);
+  try { player.applyKnockback({ x: backX, z: backZ }, KNOCKBACK_VERT); } catch (_) {}
+  try { player.applyDamage(KNOCKBACK_DAMAGE, { cause: EntityDamageCause.entityAttack }); } catch (_) {}
+  try { player.playSound("mob.player.hurt", { volume: 1, pitch: 1 }); } catch (_) {}
+  try { dim.spawnParticle(COLLISION_PARTICLE, player.location); } catch (_) {}
 }
 
 function tickRiders() {
@@ -481,6 +538,15 @@ function tickRiders() {
       const f = RIDE_SPEED / d;
       pos = { x: here.x + dx * f, y: here.y + dy * f, z: here.z + dz * f };
       reached = false;
+    }
+    // Look ahead for solid blocks or mobs; on a hit, pitch the rider backwards
+    // off the line instead of clipping through the obstacle.
+    if (ticksSinceMount >= RIDE_COLLISION_GRACE_TICKS) {
+      const hit = checkRideCollision(dim, trolley, player, dx, dy, dz);
+      if (hit) {
+        knockOffRide(player, dim, dx, dz);
+        continue;
+      }
     }
     try {
       trolley.teleport(pos);
