@@ -17,9 +17,19 @@ const MOUNT_NEAREST_RADIUS = 2.5;
 const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 4;
 const RIDE_HANG_OFFSET = 2.0; // blocks the player hangs below the wire
-const RIDE_SPEED = 0.4; // blocks moved per tick (~8 blocks/sec at 20 tps)
-const RIDE_COLLISION_GRACE_TICKS = 5;          // ignore collisions for the first few ticks after mount
-const RIDE_BLOCK_LOOKAHEAD = RIDE_SPEED + 0.5; // how far the ray peeks down the line each tick
+// Speed model: target speed depends on the line's slope (downhill = faster),
+// and the rider's actual speed lerps toward the target so motion ramps in
+// instead of snapping. Tune these in playtest.
+const RIDE_SPEED_BASE = 0.4;  // blocks/tick on a flat line (~8 b/s at 20 tps)
+const RIDE_SPEED_MIN  = 0.05; // creep on steep uphills (so you don't freeze)
+const RIDE_SPEED_MAX  = 0.8;  // terminal velocity on steep downhills
+const RIDE_SLOPE_GAIN = 2.0;  // how much slope multiplies the base speed
+const RIDE_ACCEL      = 0.10; // per-tick lerp factor toward target speed
+const RIDE_SOUND_INTERVAL = 10; // ticks between re-triggering the ride sound
+const DISMOUNT_MOMENTUM_GAIN = 2.0; // multiplier on speed when carrying forward off the line
+const DISMOUNT_VERTICAL_LIFT = 0.1; // small upward kick so you don't drop straight on dismount
+const RIDE_COLLISION_GRACE_TICKS = 5;             // ignore collisions for the first few ticks after mount
+const RIDE_BLOCK_LOOKAHEAD = RIDE_SPEED_MAX + 0.5; // sized for the fastest the ride can go
 const RIDE_MOB_RADIUS = 1.2;                    // sphere around trolley to check for mobs/players
 const RIDE_HEAD_OFFSET = 1.8;                   // rider head height above trolley
 const KNOCKBACK_HORIZ = 0.8;
@@ -48,6 +58,14 @@ const DP_RIDING_SEG = "zipline:ridingSeg";
 const DP_RIDING_COUNT = "zipline:ridingCount";
 const DP_MOUNT_TICK = "zipline:mountTick";
 const DP_RIDING_TROLLEY = "zipline:ridingTrolley";
+const DP_RIDING_DIR = "zipline:ridingDir";       // +1 (start->end) or -1 (end->start)
+const DP_RIDING_SPEED = "zipline:ridingSpeed";   // current speed in blocks/tick (ramps)
+const DP_RIDING_LAST_DX = "zipline:lastDx";      // last per-tick travel dx (carried out on dismount)
+const DP_RIDING_LAST_DZ = "zipline:lastDz";
+const DP_LINE_SLOPE = "zipline:lineSlope";       // cached on the start anchor; -dy/horiz (down +ve)
+const DP_LINE_DIR_X = "zipline:lineDirX";        // cached on start anchor; end - start (unnormalized)
+const DP_LINE_DIR_Y = "zipline:lineDirY";
+const DP_LINE_DIR_Z = "zipline:lineDirZ";
 const DP_PREVIEW_CABLE = "zipline:previewCable";
 const DP_PREVIEW = "zipline:isPreview";
 
@@ -307,6 +325,19 @@ function placeEndAndConnect(player) {
   }
   spawnCable(dim, lineId, startLoc, endLoc);
   startAnchor.setDynamicProperty(DP_SEG_COUNT, segCount);
+  // Cache line direction + slope on the start anchor for the ride logic to read
+  // at mount time (so we don't have to scan endpoints every ride).
+  {
+    const ddx = endLoc.x - startLoc.x;
+    const ddy = endLoc.y - startLoc.y;
+    const ddz = endLoc.z - startLoc.z;
+    const horiz = Math.sqrt(ddx * ddx + ddz * ddz);
+    const slope = horiz > 0.0001 ? -ddy / horiz : 0; // +ve downhill (forward)
+    startAnchor.setDynamicProperty(DP_LINE_SLOPE, slope);
+    startAnchor.setDynamicProperty(DP_LINE_DIR_X, ddx);
+    startAnchor.setDynamicProperty(DP_LINE_DIR_Y, ddy);
+    startAnchor.setDynamicProperty(DP_LINE_DIR_Z, ddz);
+  }
   clearPending(player);
   player.sendMessage(`§aZipline created (${segCount} segments, ${dist.toFixed(1)} blocks).`);
   player.playSound("note.chime", { volume: 1, pitch: 1.4 });
@@ -423,22 +454,60 @@ function mountHandle(player, anchor) {
     return;
   }
 
+  // Pick a ride direction from the player's view: if they're looking back
+  // toward the line's start, ride the reverse direction. Dot product sign is
+  // all we need; no normalization required.
+  let rideDir = 1;
+  let baseSlope = 0;
+  if (start) {
+    const ldx = start.getDynamicProperty(DP_LINE_DIR_X);
+    const ldy = start.getDynamicProperty(DP_LINE_DIR_Y);
+    const ldz = start.getDynamicProperty(DP_LINE_DIR_Z);
+    if (typeof ldx === "number" && typeof ldy === "number" && typeof ldz === "number") {
+      const view = player.getViewDirection();
+      const dot = view.x * ldx + view.y * ldy + view.z * ldz;
+      rideDir = dot >= 0 ? 1 : -1;
+    }
+    const cachedSlope = start.getDynamicProperty(DP_LINE_SLOPE);
+    if (typeof cachedSlope === "number") baseSlope = cachedSlope * rideDir;
+  }
+
   player.setDynamicProperty(DP_RIDING_LINE, lineId);
   player.setDynamicProperty(DP_RIDING_SEG, typeof segIndex === "number" ? segIndex : 0);
   player.setDynamicProperty(DP_RIDING_COUNT, typeof segCount === "number" ? segCount : MAX_SEGMENTS);
   player.setDynamicProperty(DP_RIDING_TROLLEY, trolley.id);
+  player.setDynamicProperty(DP_RIDING_DIR, rideDir);
+  player.setDynamicProperty(DP_RIDING_SPEED, 0); // ramps up via RIDE_ACCEL
   player.setDynamicProperty(DP_MOUNT_TICK, system.currentTick);
-  player.sendMessage("§aHooked on — riding! §8sneak to dismount");
+  // Stash slope on the player so the per-tick loop doesn't have to re-find
+  // the start anchor on every tick.
+  player.setDynamicProperty(DP_LINE_SLOPE, baseSlope);
+  player.sendMessage(
+    rideDir > 0
+      ? "§aHooked on — riding! §8sneak to dismount"
+      : "§aHooked on — riding backward! §8sneak to dismount",
+  );
   player.playSound("note.chime", { volume: 1, pitch: 1.4 });
 }
 
-function dismountPlayer(player) {
+function dismountPlayer(player, opts = {}) {
   const wasRiding = typeof player.getDynamicProperty(DP_RIDING_LINE) === "string";
   const trolleyId = player.getDynamicProperty(DP_RIDING_TROLLEY);
+  // Read last travel direction + speed BEFORE clearing them so we can carry
+  // momentum out of the ride. The collision path passes applyMomentum:false
+  // so its backwards knockback isn't cancelled.
+  const lastDx = player.getDynamicProperty(DP_RIDING_LAST_DX);
+  const lastDz = player.getDynamicProperty(DP_RIDING_LAST_DZ);
+  const lastSpeed = player.getDynamicProperty(DP_RIDING_SPEED);
   player.setDynamicProperty(DP_RIDING_LINE, undefined);
   player.setDynamicProperty(DP_RIDING_SEG, undefined);
   player.setDynamicProperty(DP_RIDING_COUNT, undefined);
   player.setDynamicProperty(DP_RIDING_TROLLEY, undefined);
+  player.setDynamicProperty(DP_RIDING_DIR, undefined);
+  player.setDynamicProperty(DP_RIDING_SPEED, undefined);
+  player.setDynamicProperty(DP_RIDING_LAST_DX, undefined);
+  player.setDynamicProperty(DP_RIDING_LAST_DZ, undefined);
+  player.setDynamicProperty(DP_LINE_SLOPE, undefined);
   player.setDynamicProperty(DP_MOUNT_TICK, undefined);
   // Removing the trolley ejects the rider.
   if (typeof trolleyId === "string") {
@@ -446,6 +515,21 @@ function dismountPlayer(player) {
     if (t) { try { t.remove(); } catch (_) {} }
   }
   if (wasRiding) {
+    // Carry forward momentum on a voluntary dismount — fly off the line in
+    // the travel direction instead of dropping straight. applyKnockback only
+    // works once the rider is no longer a passenger, which is true here
+    // because the trolley.remove() above ejected them.
+    if (opts.applyMomentum !== false &&
+        typeof lastDx === "number" && typeof lastDz === "number" &&
+        typeof lastSpeed === "number" && lastSpeed > 0) {
+      const flat = Math.sqrt(lastDx * lastDx + lastDz * lastDz);
+      if (flat > 0) {
+        const factor = (lastSpeed * DISMOUNT_MOMENTUM_GAIN) / flat;
+        try {
+          player.applyKnockback({ x: lastDx * factor, z: lastDz * factor }, DISMOUNT_VERTICAL_LIFT);
+        } catch (_) {}
+      }
+    }
     // Brief slow-falling so dropping off the line doesn't deal fall damage.
     try {
       player.addEffect("slow_falling", DISMOUNT_SLOWFALL_TICKS, {
@@ -464,7 +548,9 @@ function knockOffRide(player, dim, dx, dz) {
   const flat = Math.sqrt(dx * dx + dz * dz) || 1;
   const backX = (-dx / flat) * KNOCKBACK_HORIZ;
   const backZ = (-dz / flat) * KNOCKBACK_HORIZ;
-  dismountPlayer(player);
+  // applyMomentum:false so dismount doesn't push the rider forward — we want
+  // them pitched backwards into whatever they hit.
+  dismountPlayer(player, { applyMomentum: false });
   try { player.applyKnockback({ x: backX, z: backZ }, KNOCKBACK_VERT); } catch (_) {}
   try { player.applyDamage(KNOCKBACK_DAMAGE, { cause: EntityDamageCause.entityAttack }); } catch (_) {}
   try { player.playSound("mob.player.hurt", { volume: 1, pitch: 1 }); } catch (_) {}
@@ -504,9 +590,11 @@ function tickRiders() {
     const segIndex = player.getDynamicProperty(DP_RIDING_SEG);
     const currentSeg = typeof segIndex === "number" ? segIndex : 0;
     const segCount = player.getDynamicProperty(DP_RIDING_COUNT);
-    // Kick off one anchor before the final one so the rider doesn't glide
-    // into the destination block.
-    if (typeof segCount === "number" && currentSeg + 1 >= segCount) {
+    const rideDir = player.getDynamicProperty(DP_RIDING_DIR) === -1 ? -1 : 1;
+    const targetSeg = currentSeg + rideDir;
+    // Kick off one anchor before whichever endpoint we're heading for, so the
+    // rider doesn't glide into the destination/origin block.
+    if (typeof segCount === "number" && (targetSeg >= segCount || targetSeg <= 0)) {
       dismountPlayer(player);
       continue;
     }
@@ -518,13 +606,27 @@ function tickRiders() {
     const next = nearby.find(
       (a) =>
         a.getDynamicProperty(DP_LINE_ID) === lineId &&
-        a.getDynamicProperty(DP_SEG_INDEX) === currentSeg + 1,
+        a.getDynamicProperty(DP_SEG_INDEX) === targetSeg,
     );
     if (!next) {
       dismountPlayer(player);
       continue;
     }
-    // Glide the trolley toward the next anchor a fixed distance per tick; the
+    // Slope-driven speed: gravity pulls the rider faster on downhills, slows
+    // them on uphills. Actual speed lerps toward the target so motion ramps
+    // in instead of snapping at mount / direction change.
+    const slope = player.getDynamicProperty(DP_LINE_SLOPE);
+    const baseSlope = typeof slope === "number" ? slope : 0;
+    const targetSpeed = Math.max(
+      RIDE_SPEED_MIN,
+      Math.min(RIDE_SPEED_MAX, RIDE_SPEED_BASE * (1 + RIDE_SLOPE_GAIN * baseSlope)),
+    );
+    const prevSpeed = player.getDynamicProperty(DP_RIDING_SPEED);
+    const speed = (typeof prevSpeed === "number" ? prevSpeed : 0)
+      + (targetSpeed - (typeof prevSpeed === "number" ? prevSpeed : 0)) * RIDE_ACCEL;
+    player.setDynamicProperty(DP_RIDING_SPEED, speed);
+
+    // Glide the trolley toward the next anchor `speed` blocks per tick; the
     // seated player rides along smoothly. Advance the segment once reached.
     const target = hangBelow(next.location);
     const here = trolley.location;
@@ -534,8 +636,8 @@ function tickRiders() {
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
     let pos = target;
     let reached = true;
-    if (d > RIDE_SPEED) {
-      const f = RIDE_SPEED / d;
+    if (d > speed) {
+      const f = speed / d;
       pos = { x: here.x + dx * f, y: here.y + dy * f, z: here.z + dz * f };
       reached = false;
     }
@@ -554,13 +656,22 @@ function tickRiders() {
       dismountPlayer(player);
       continue;
     }
+    // Cache the per-tick travel vector so dismount can carry forward momentum.
+    player.setDynamicProperty(DP_RIDING_LAST_DX, dx);
+    player.setDynamicProperty(DP_RIDING_LAST_DZ, dz);
     if (reached) {
-      player.setDynamicProperty(DP_RIDING_SEG, currentSeg + 1);
+      player.setDynamicProperty(DP_RIDING_SEG, currentSeg + rideDir);
+    }
+    // Continuous "zip" sound while moving; pitch rises with speed.
+    if (ticksSinceMount % RIDE_SOUND_INTERVAL === 0) {
+      const pitch = 1.0 + 0.6 * (speed / RIDE_SPEED_MAX);
+      try { player.playSound("minecart.base", { volume: 0.4, pitch }); } catch (_) {}
     }
     if (typeof segCount === "number") {
       try {
+        const arrow = rideDir > 0 ? "▶" : "◀";
         player.onScreenDisplay.setActionBar(
-          `§a▶ Ziplining §7(${currentSeg + 1} / ${segCount})  §8sneak to dismount`,
+          `§a${arrow} Ziplining §7(${currentSeg} / ${segCount})  §8sneak to dismount`,
         );
       } catch (_) {}
     }
