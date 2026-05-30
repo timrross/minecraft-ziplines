@@ -20,7 +20,23 @@ WORLD="$2"
 
 BP_UUID="c74cdcb9-d41a-4c3b-9774-3b1682f2d2d0"
 RP_UUID="ab9c628b-d5e9-4550-b79d-837794fd6378"
-VERSION="1.0.0"
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+BP_SRC="$HERE/zipline_BP"
+RP_SRC="$HERE/zipline_RP"
+
+# Read the version from the BP manifest so a deploy always matches the packs you
+# built and stays correct after every version bump. BP and RP versions are kept
+# in lockstep by validate.js, so one source suffices; python3 is required below
+# anyway. VERSION is dotted (e.g. 1.0.20) for the pack dir names; VERSION_CSV is
+# comma-form (1,0,20) for the world_*_packs.json version arrays.
+read VERSION VERSION_CSV < <(python3 - "$BP_SRC/manifest.json" <<'PY'
+import json, sys
+v = json.load(open(sys.argv[1]))["header"]["version"]
+print(".".join(map(str, v)), ",".join(map(str, v)))
+PY
+)
+
 BP_DIR_NAME="zipline_BP_${VERSION}"
 RP_DIR_NAME="zipline_RP_${VERSION}"
 
@@ -30,10 +46,6 @@ RP_DEST="$BDS_ROOT/resource_packs/$RP_DIR_NAME"
 
 [[ -d "$BDS_ROOT" ]] || { echo "BDS root not found: $BDS_ROOT" >&2; exit 1; }
 [[ -d "$WORLD_DIR" ]] || { echo "World not found: $WORLD_DIR" >&2; exit 1; }
-
-HERE="$(cd "$(dirname "$0")" && pwd)"
-BP_SRC="$HERE/zipline_BP"
-RP_SRC="$HERE/zipline_RP"
 
 mkdir -p "$BDS_ROOT/behavior_packs" "$BDS_ROOT/resource_packs"
 
@@ -71,10 +83,10 @@ PY
 }
 
 echo "Updating $WORLD_DIR/world_behavior_packs.json"
-merge_pack "$WORLD_DIR/world_behavior_packs.json" "$BP_UUID" "1,0,0"
+merge_pack "$WORLD_DIR/world_behavior_packs.json" "$BP_UUID" "$VERSION_CSV"
 
 echo "Updating $WORLD_DIR/world_resource_packs.json"
-merge_pack "$WORLD_DIR/world_resource_packs.json" "$RP_UUID" "1,0,0"
+merge_pack "$WORLD_DIR/world_resource_packs.json" "$RP_UUID" "$VERSION_CSV"
 
 cat <<DONE
 
