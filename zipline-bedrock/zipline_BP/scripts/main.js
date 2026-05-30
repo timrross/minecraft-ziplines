@@ -7,13 +7,24 @@ const ANCHOR = "zipline:anchor";
 const CABLE = "zipline:cable";
 const TROLLEY = "zipline:trolley";
 
-const MAX_LINE_BLOCKS = 96;
+const MAX_LINE_BLOCKS = 144;
 const SEGMENT_BLOCKS = 1.0;
-const MAX_SEGMENTS = 96;
+const MAX_SEGMENTS = 144;
+// The cable visual is rendered as a chain of short entities rather than one long
+// stretched one: Bedrock culls an entity by the distance from the camera to its
+// origin (not its stretched geometry), so a single line-long cable vanishes once
+// you ride far from the start anchor. Chunking keeps every visible piece's origin
+// close to the camera. Smaller = fewer gaps but more entities.
+const CABLE_CHUNK_BLOCKS = 16;
 const MIN_LINE_LENGTH = 2.0;
 const AIM_RADIUS = 7;
 const AIM_PERP_TOLERANCE = 1.6;
 const MOUNT_NEAREST_RADIUS = 2.5;
+// How close the sighted line's nearest point must be to hook on by aiming. You
+// can pick a line by looking at it from a little way off, but not mount one
+// clear across the room — keep it close, just a touch more than the no-aim
+// nearest radius so aiming buys a bit of reach without teleporting you far.
+const MOUNT_AIM_RADIUS = 4;
 const RIDE_TICK_INTERVAL = 1;
 const RIDE_LOOKAHEAD = 4;
 const RIDE_HANG_OFFSET = 2.0; // blocks the player hangs below the wire
@@ -122,21 +133,30 @@ function findAimedAnchor(player) {
     location: origin,
     maxDistance: AIM_RADIUS,
   });
+  // Among anchors whose distance from the crosshair ray is within tolerance,
+  // pick the one best ALIGNED with the view (largest cos angle), not the one
+  // nearest along the ray. When several lines share an anchor and fan out in
+  // different directions, the nearest-along-ray anchor sits at the shared point
+  // and could belong to any line; the best-aligned anchor lies farther down the
+  // exact line the player is sighting, so it disambiguates which line they mean.
   let best = null;
-  let bestT = Infinity;
+  let bestAlign = -Infinity;
   for (const a of candidates) {
     const dx = a.location.x - origin.x;
     const dy = a.location.y - origin.y;
     const dz = a.location.z - origin.z;
     const t = dx * dir.x + dy * dir.y + dz * dir.z;
-    if (t < 0 || t > AIM_RADIUS) continue;
+    if (t <= 0 || t > AIM_RADIUS) continue;
     const px = dx - dir.x * t;
     const py = dy - dir.y * t;
     const pz = dz - dir.z * t;
     const perp = Math.sqrt(px * px + py * py + pz * pz);
-    if (perp < AIM_PERP_TOLERANCE && t < bestT) {
+    if (perp >= AIM_PERP_TOLERANCE) continue;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const align = dist > 0 ? t / dist : 0; // cos of angle to crosshair; ~1 = dead-on
+    if (align > bestAlign) {
       best = a;
-      bestT = t;
+      bestAlign = align;
     }
   }
   return best;
@@ -155,6 +175,30 @@ function findNearestAnchor(player, radius) {
   let best = null;
   let bestD = Infinity;
   for (const a of candidates) {
+    const d = distance(a.location, origin);
+    if (d < bestD) {
+      best = a;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+// The closest anchor belonging to a specific line. Used at mount time so that,
+// once the view has chosen WHICH line to ride, the player is seated at the
+// nearest point of that line rather than wherever the aim-pick anchor happened
+// to land farther down the cable.
+function findNearestAnchorOnLine(player, lineId, radius) {
+  const origin = player.getHeadLocation();
+  const candidates = player.dimension.getEntities({
+    type: ANCHOR,
+    location: origin,
+    maxDistance: radius,
+  });
+  let best = null;
+  let bestD = Infinity;
+  for (const a of candidates) {
+    if (a.getDynamicProperty(DP_LINE_ID) !== lineId) continue;
     const d = distance(a.location, origin);
     if (d < bestD) {
       best = a;
@@ -205,7 +249,7 @@ function setCableTransform(cable, startLoc, endLoc) {
   const yaw = (Math.atan2(-dx, dz) * 180) / Math.PI;
   const pitch = (Math.atan2(-dy, horiz) * 180) / Math.PI;
   try {
-    cable.setProperty("zipline:length", Math.max(0.01, Math.min(128, dist)));
+    cable.setProperty("zipline:length", Math.max(0.01, Math.min(144, dist)));
     cable.setProperty("zipline:yaw", yaw);
     cable.setProperty("zipline:pitch", pitch);
   } catch (_) {}
@@ -266,11 +310,28 @@ function placeStartAnchor(player) {
 // point start -> end via client-synced entity properties (applied in the
 // cable animation). yaw/pitch use Minecraft's convention (yaw 0 = +Z).
 function spawnCable(dim, lineId, startLoc, endLoc) {
-  try {
-    const cable = dim.spawnEntity(CABLE, startLoc);
-    cable.setDynamicProperty(DP_LINE_ID, lineId);
-    setCableTransform(cable, startLoc, endLoc);
-  } catch (_) {}
+  const dx = endLoc.x - startLoc.x;
+  const dy = endLoc.y - startLoc.y;
+  const dz = endLoc.z - startLoc.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const chunks = Math.max(1, Math.ceil(dist / CABLE_CHUNK_BLOCKS));
+  for (let i = 0; i < chunks; i++) {
+    const a = {
+      x: startLoc.x + dx * (i / chunks),
+      y: startLoc.y + dy * (i / chunks),
+      z: startLoc.z + dz * (i / chunks),
+    };
+    const b = {
+      x: startLoc.x + dx * ((i + 1) / chunks),
+      y: startLoc.y + dy * ((i + 1) / chunks),
+      z: startLoc.z + dz * ((i + 1) / chunks),
+    };
+    try {
+      const cable = dim.spawnEntity(CABLE, a);
+      cable.setDynamicProperty(DP_LINE_ID, lineId);
+      setCableTransform(cable, a, b);
+    } catch (_) {}
+  }
 }
 
 // Spawn-on-demand ghost cable that tracks the player's aim during placement.
@@ -730,9 +791,21 @@ function handleUse(player, item) {
     if (typeof player.getDynamicProperty(DP_RIDING_LINE) === "string") {
       return; // no-op while riding; sneak or swap item to dismount
     }
-    const a = findNearestAnchor(player, MOUNT_NEAREST_RADIUS);
+    // Prefer the line the player is actually looking at; only fall back to the
+    // nearest wire when they aren't sighting one. This way, when several lines
+    // share an anchor, you hook onto the one in your crosshair rather than
+    // whichever happens to be closest (e.g. the one directly overhead).
+    const aimed = findAimedAnchor(player);
+    let a = null;
+    if (aimed) {
+      const lineId = aimed.getDynamicProperty(DP_LINE_ID);
+      a = findNearestAnchorOnLine(player, lineId, MOUNT_AIM_RADIUS);
+    }
+    // Not looking at a reachable line? Fall back to the closest wire you're
+    // standing next to.
+    if (!a) a = findNearestAnchor(player, MOUNT_NEAREST_RADIUS);
     if (a) mountHandle(player, a);
-    else player.sendMessage("§eGet within ~2 blocks of a zipline to hook on.");
+    else player.sendMessage("§eLook at or get within ~2 blocks of a zipline to hook on.");
   }
 }
 

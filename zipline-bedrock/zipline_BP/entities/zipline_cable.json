@@ -7,7 +7,7 @@
       "is_summonable": true,
       "is_experimental": false,
       "properties": {
-        "zipline:length": { "type": "float", "range": [0.0, 128.0], "default": 1.0, "client_sync": true },
+        "zipline:length": { "type": "float", "range": [0.0, 144.0], "default": 1.0, "client_sync": true },
         "zipline:yaw": { "type": "float", "range": [-180.0, 180.0], "default": 0.0, "client_sync": true },
         "zipline:pitch": { "type": "float", "range": [-90.0, 90.0], "default": 0.0, "client_sync": true }
       }
